@@ -47,24 +47,51 @@ export async function fetchEmbyMovies(settings: ServerSettings): Promise<Movie[]
       'MediaStreams'
     ].join(',');
 
-    const url = `${baseUrl}/Items?IncludeItemTypes=Movie&Recursive=true&Fields=${fields}&SortBy=SortName&api_key=${encodeURIComponent(settings.apiKey)}`;
+    // Add Limit=2000 to prevent Emby from truncating at default page size
+    let url = `${baseUrl}/Items?IncludeItemTypes=Movie&Recursive=true&Limit=2000&Fields=${fields}&SortBy=SortName&api_key=${encodeURIComponent(settings.apiKey)}`;
     
-    const response = await fetch(url, {
+    let response = await fetch(url, {
       headers: {
         'X-Emby-Token': settings.apiKey,
         'Accept': 'application/json'
       }
     });
     
-    if (!response.ok) {
-      throw new Error(`Emby API error: ${response.status} ${response.statusText}`);
+    // If standard global Items fails or returns 0, try fetching through active Emby users
+    let data = response.ok ? await response.json() : null;
+    
+    if (!data || !data.Items || data.Items.length === 0) {
+      try {
+        const usersRes = await fetch(`${baseUrl}/Users?api_key=${encodeURIComponent(settings.apiKey)}`, {
+          headers: { 'X-Emby-Token': settings.apiKey, 'Accept': 'application/json' }
+        });
+        if (usersRes.ok) {
+          const users = await usersRes.json();
+          if (Array.isArray(users) && users.length > 0) {
+            const userId = users[0].Id;
+            const userUrl = `${baseUrl}/Users/${userId}/Items?IncludeItemTypes=Movie&Recursive=true&Limit=2000&Fields=${fields}&SortBy=SortName&api_key=${encodeURIComponent(settings.apiKey)}`;
+            const userResponse = await fetch(userUrl, {
+              headers: { 'X-Emby-Token': settings.apiKey, 'Accept': 'application/json' }
+            });
+            if (userResponse.ok) {
+              data = await userResponse.json();
+            }
+          }
+        }
+      } catch (userErr) {
+        console.warn("User fallback query check skipped:", userErr);
+      }
     }
-    
-    const data = await response.json();
-    
-    if (!data.Items || !Array.isArray(data.Items)) {
+
+    if (!data || !data.Items || !Array.isArray(data.Items)) {
+      if (response && !response.ok) {
+        throw new Error(`Emby API error: ${response.status} ${response.statusText}`);
+      }
       return [];
     }
+
+    console.log(`Successfully loaded ${data.Items.length} movies from Emby server.`);
+
     
     return data.Items.map((item: any): Movie => {
       // Calculate runtime in minutes (RunTimeTicks is in 10,000s of a millisecond)
