@@ -1,0 +1,6 @@
+{
+  "name": "R-Volution Player",
+  "description": "A media player UI clone of R_volution, integrating with Emby for streaming.",
+  "requestFramePermissions": ["fullscreen"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

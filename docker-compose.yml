@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  rvolution-player:
+    container_name: rvolution-player
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rvolution-player:latest
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      - TZ=UTC
+    x-casaos:
+      architectures:
+        - amd64
+        - arm64
+        - arm
+      main: rvolution-player
+      description:
+        en_us: High-end R_volution Player UI clone for Emby & Jellyfin media servers.
+      tagline:
+        en_us: Cinematic R_volution clone media player
+      developer: R_volution Community
+      author: CasaOS App
+      icon: https://cdn-icons-png.flaticon.com/512/2809/2809590.png
+      thumbnail: https://cdn-icons-png.flaticon.com/512/2809/2809590.png
+      title:
+        en_us: R_volution Player
+      category: Media
+      port_map: "3000"
+      index: /
