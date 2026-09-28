@@ -1,21 +1,29 @@
 # Multi-stage Dockerfile for R_volution Player Web App
 # Optimized for CasaOS, Docker, and lightweight home servers
 
-# Stage 1: Build the frontend
+# Stage 1: Lightweight build stage
 FROM node:22-alpine AS builder
 
 WORKDIR /app
 
+# Prevent Electron from downloading any binaries during web build
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
+ENV HUSKY=0
+ENV CI=1
+
 # Copy dependency files
 COPY package.json package-lock.json* bun.lock* ./
 
-# Install dependencies
-RUN npm install
+# Remove heavy desktop-only Electron tools before install so Raspberry Pi doesn't waste CPU/RAM downloading them
+RUN npm pkg delete devDependencies.electron devDependencies.electron-builder devDependencies.wait-on devDependencies.concurrently
+
+# Fast install: only the lightweight web build tools (Vite, React, Tailwind)
+RUN npm install --ignore-scripts --no-audit --no-fund
 
 # Copy application source
 COPY . .
 
-# Build Vite app
+# Build Vite static assets
 RUN npm run build
 
 # Stage 2: Serve using high-performance Alpine Nginx
