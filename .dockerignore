@@ -1,0 +1,17 @@
+node_modules
+npm-debug.log
+yarn-error.log
+.git
+.github
+.gitignore
+.env
+.env.local
+android
+release
+build
+dist
+electron
+*.md
+Dockerfile*
+docker-compose*.yml
+.DS_Store
