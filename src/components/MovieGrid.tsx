@@ -370,6 +370,16 @@ export function MovieGrid({
                     <Play size={20} fill="currentColor" className="ml-1" />
                   </div>
                 </div>
+
+                {/* Progress bar for in-progress movies */}
+                {movie.playbackPercentage && movie.playbackPercentage > 0 ? (
+                  <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-black/70 overflow-hidden">
+                    <div 
+                      className="h-full bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.9)]" 
+                      style={{ width: `${movie.playbackPercentage}%` }} 
+                    />
+                  </div>
+                ) : null}
               </div>
               <p className="mt-2 text-xs font-semibold text-white/90 truncate drop-shadow group-focus:text-cyan-300">{movie.title}</p>
               <p className="text-[10px] text-zinc-400">{movie.year || ''}</p>
@@ -459,6 +469,16 @@ export function MovieGrid({
                       <Play className="text-white ml-1" fill="currentColor" size={24} />
                     </div>
                   </div>
+
+                  {/* Progress bar for in-progress movies */}
+                  {movie.playbackPercentage && movie.playbackPercentage > 0 ? (
+                    <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-black/70 overflow-hidden">
+                      <div 
+                        className="h-full bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.9)]" 
+                        style={{ width: `${movie.playbackPercentage}%` }} 
+                      />
+                    </div>
+                  ) : null}
                 </div>
 
                 <p className="mt-2 text-xs font-semibold text-white/90 truncate w-36 md:w-48 lg:w-56 drop-shadow group-focus:text-cyan-300">

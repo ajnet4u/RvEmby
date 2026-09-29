@@ -1,26 +1,66 @@
 import React, { useState, useEffect } from 'react';
 import { ServerSettings } from '../types';
-import { X, Server, Key, AlertCircle, CheckCircle2, Loader2, HelpCircle } from 'lucide-react';
+import { 
+  X, 
+  Server, 
+  Key, 
+  AlertCircle, 
+  CheckCircle2, 
+  Loader2, 
+  HelpCircle,
+  QrCode,
+  Smartphone,
+  Copy,
+  Check,
+  Share2
+} from 'lucide-react';
 import { testEmbyConnection } from '../api/emby';
+import QRCode from 'qrcode';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentSettings: ServerSettings;
   onSave: (settings: ServerSettings) => void;
+  onOpenCodecs?: () => void;
 }
 
-export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, currentSettings, onSave, onOpenCodecs }: SettingsModalProps) {
   const [url, setUrl] = useState(currentSettings.url || 'http://192.168.10.146:8096');
   const [apiKey, setApiKey] = useState(currentSettings.apiKey || '');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Sync to new device / QR code state
+  const [showSyncSection, setShowSyncSection] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Sync state if currentSettings change
   useEffect(() => {
     if (currentSettings.url) setUrl(currentSettings.url);
     if (currentSettings.apiKey) setApiKey(currentSettings.apiKey);
   }, [currentSettings]);
+
+  // Generate QR code when sync section is open
+  useEffect(() => {
+    if (showSyncSection && apiKey.trim()) {
+      const origin = window.location.origin;
+      const pathname = window.location.pathname;
+      const syncUrl = `${origin}${pathname}?server=${encodeURIComponent(url.trim())}&key=${encodeURIComponent(apiKey.trim())}`;
+      
+      QRCode.toDataURL(syncUrl, {
+        width: 200,
+        margin: 1.5,
+        color: {
+          dark: '#000000',
+          light: '#ffffff'
+        }
+      })
+      .then(url => setQrDataUrl(url))
+      .catch(err => console.error("QR Code generation error:", err));
+    }
+  }, [showSyncSection, url, apiKey]);
 
   if (!isOpen) return null;
 
@@ -56,6 +96,17 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: Sett
     }
   };
 
+  const handleCopySyncLink = () => {
+    const origin = window.location.origin;
+    const pathname = window.location.pathname;
+    const syncUrl = `${origin}${pathname}?server=${encodeURIComponent(url.trim())}&key=${encodeURIComponent(apiKey.trim())}`;
+    
+    navigator.clipboard.writeText(syncUrl).then(() => {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    }).catch(() => {});
+  };
+
   const handleClose = () => {
     // If the user entered an API key, automatically preserve it
     if (apiKey.trim()) {
@@ -85,7 +136,7 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: Sett
           </div>
           <button 
             onClick={handleClose}
-            className="text-zinc-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-zinc-800"
+            className="text-zinc-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-zinc-800 cursor-pointer"
           >
             <X size={22} />
           </button>
@@ -148,6 +199,57 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: Sett
             </div>
           )}
 
+          {/* Sync with TV / New Device (Quick-Connect & QR Code) */}
+          {apiKey.trim() && (
+            <div className="rounded-xl bg-zinc-950/70 border border-cyan-500/30 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-semibold text-cyan-300">
+                  <Smartphone size={16} className="text-cyan-400" />
+                  <span>Sync to New Device (Smart TV / Phone)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSyncSection(!showSyncSection)}
+                  className="text-xs font-medium text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
+                >
+                  {showSyncSection ? 'Hide QR Code' : 'Show QR & Quick Link'}
+                </button>
+              </div>
+
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Connect any other TV, tablet, or phone instantly without typing your API key manually on the new device.
+              </p>
+
+              {showSyncSection && (
+                <div className="pt-2 border-t border-zinc-800/80 flex flex-col sm:flex-row items-center gap-4">
+                  {qrDataUrl && (
+                    <div className="p-2 bg-white rounded-xl shadow-lg shrink-0">
+                      <img src={qrDataUrl} alt="Quick connect QR code" className="w-32 h-32 block" />
+                    </div>
+                  )}
+
+                  <div className="space-y-2 flex-1 text-xs">
+                    <div className="text-zinc-200 font-medium">How to connect your new device:</div>
+                    <ul className="list-disc list-inside space-y-1 text-zinc-400 text-[11px]">
+                      <li>Scan this QR code with your mobile camera to open JEmby pre-configured.</li>
+                      <li>Or copy the Quick-Connect link below and open it in your Smart TV browser.</li>
+                      <li>Server settings are automatically shared across your local network.</li>
+                    </ul>
+
+                    <button
+                      type="button"
+                      onClick={handleCopySyncLink}
+                      className="mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-400/50 text-cyan-200 text-xs font-semibold transition-all cursor-pointer"
+                    >
+                      {copiedLink ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                      <span>{copiedLink ? 'Copied Quick Link!' : 'Copy Quick-Connect Link'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Setup Help */}
           <div className="rounded-xl bg-zinc-950/60 border border-zinc-800/80 p-4 space-y-2 text-xs text-zinc-400">
             <div className="flex items-center gap-1.5 font-medium text-zinc-200">
@@ -165,12 +267,28 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: Sett
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-3 pt-3">
+          {onOpenCodecs && (
+            <div className="pt-3 border-t border-zinc-800/80 flex items-center justify-between text-xs">
+              <span className="text-zinc-400">Want to test hardware codec support?</span>
+              <button
+                type="button"
+                onClick={() => {
+                  handleClose();
+                  onOpenCodecs();
+                }}
+                className="text-cyan-400 hover:text-cyan-300 font-semibold underline transition-colors cursor-pointer"
+              >
+                Inspect Device Codecs →
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-3 pt-2">
             <button
               type="button"
               onClick={handleTest}
               disabled={testing}
-              className="px-4 py-2.5 rounded-lg border border-zinc-700 hover:border-cyan-500/50 bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-xs font-semibold flex items-center gap-2 transition-all disabled:opacity-50"
+              className="px-4 py-2.5 rounded-lg border border-zinc-700 hover:border-cyan-500/50 bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-xs font-semibold flex items-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
             >
               {testing ? <Loader2 size={14} className="animate-spin text-cyan-400" /> : <Server size={14} className="text-cyan-400" />}
               Test Connection
@@ -180,13 +298,13 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: Sett
               <button
                 type="button"
                 onClick={handleClose}
-                className="px-5 py-2.5 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors text-xs font-semibold"
+                className="px-5 py-2.5 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors text-xs font-semibold cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-6 py-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition-all shadow-[0_0_15px_rgba(8,145,178,0.4)]"
+                className="px-6 py-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition-all shadow-[0_0_15px_rgba(8,145,178,0.4)] cursor-pointer"
               >
                 Save & Connect
               </button>
@@ -197,5 +315,6 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: Sett
     </div>
   );
 }
+
 
 

@@ -1,3 +1,14 @@
+export interface SubtitleTrack {
+  id: string;
+  index?: number;
+  lang: string;
+  code?: string;
+  label: string;
+  format?: string;
+  url?: string;
+  isDefault?: boolean;
+}
+
 export interface Movie {
   id: string;
   title: string;
@@ -16,6 +27,10 @@ export interface Movie {
   hdrBadge?: string;
   audioTracks?: { lang: string; format: string }[];
   subtitles?: string[];
+  subtitleTracks?: SubtitleTrack[];
+  playbackPositionSeconds?: number;
+  playbackPercentage?: number;
+  lastWatchedAt?: number;
 }
 
 export interface ServerSettings {

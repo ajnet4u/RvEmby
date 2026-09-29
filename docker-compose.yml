@@ -1,33 +1,36 @@
 version: '3.8'
 
 services:
-  rvolution-player:
-    container_name: rvolution-player
+  jemby-player:
+    container_name: jemby-player
     build:
       context: .
       dockerfile: Dockerfile
-    image: rvolution-player:latest
+    image: jemby-player:latest
     restart: unless-stopped
     ports:
       - "3000:80"
     environment:
       - TZ=UTC
+      # Pre-configure your Emby/Jellyfin server so ALL devices on your LAN connect automatically with ZERO prompts
+      - EMBY_URL=http://192.168.10.146:8096
+      - EMBY_API_KEY=
     x-casaos:
       architectures:
         - amd64
         - arm64
         - arm
-      main: rvolution-player
+      main: jemby-player
       description:
-        en_us: High-end R_volution Player UI clone for Emby & Jellyfin media servers.
+        en_us: High-end JEmby Player UI for Emby & Jellyfin media servers with TV remote & leanback support.
       tagline:
-        en_us: Cinematic R_volution clone media player
-      developer: R_volution Community
+        en_us: Cinematic JEmby media player
+      developer: JEmby Team
       author: CasaOS App
       icon: https://cdn-icons-png.flaticon.com/512/2809/2809590.png
       thumbnail: https://cdn-icons-png.flaticon.com/512/2809/2809590.png
       title:
-        en_us: R_volution Player
+        en_us: JEmby Player
       category: Media
       port_map: "3000"
       index: /

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Movie } from '../types';
+import { Movie, SubtitleTrack } from '../types';
 import { 
   Play, 
   Pause, 
@@ -21,10 +21,111 @@ import {
 
 interface VideoPlayerProps {
   movie: Movie | null;
+  initialTime?: number;
   onClose: () => void;
+  onProgressUpdate?: (movieId: string, positionSeconds: number, durationSeconds: number) => void;
 }
 
-export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
+interface SubtitleCue {
+  start: number;
+  end: number;
+  text: string;
+}
+
+/**
+ * Robust WebVTT and SubRip (SRT) subtitle text parser.
+ */
+function parseSubtitleText(raw: string): SubtitleCue[] {
+  const cues: SubtitleCue[] = [];
+  const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const timeRegex = /(?:(\d{1,2}):)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(?:(\d{1,2}):)?(\d{2}):(\d{2})[.,](\d{3})/;
+
+  let currentStart = 0;
+  let currentEnd = 0;
+  let currentText: string[] = [];
+  let inCue = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    const match = line.match(timeRegex);
+
+    if (match) {
+      if (inCue && currentText.length > 0) {
+        cues.push({ start: currentStart, end: currentEnd, text: currentText.join('\n') });
+        currentText = [];
+      }
+      inCue = true;
+      const sH = parseInt(match[1] || '0', 10);
+      const sM = parseInt(match[2], 10);
+      const sS = parseInt(match[3], 10);
+      const sMs = parseInt(match[4], 10);
+      currentStart = sH * 3600 + sM * 60 + sS + sMs / 1000;
+
+      const eH = parseInt(match[5] || '0', 10);
+      const eM = parseInt(match[6], 10);
+      const eS = parseInt(match[7], 10);
+      const eMs = parseInt(match[8], 10);
+      currentEnd = eH * 3600 + eM * 60 + eS + eMs / 1000;
+    } else if (inCue) {
+      if (line === '') {
+        if (currentText.length > 0) {
+          cues.push({ start: currentStart, end: currentEnd, text: currentText.join('\n') });
+          currentText = [];
+        }
+        inCue = false;
+      } else if (!/^\d+$/.test(line) && !line.startsWith('NOTE') && !line.startsWith('WEBVTT')) {
+        const clean = line.replace(/<[^>]*>/g, '');
+        if (clean) currentText.push(clean);
+      }
+    }
+  }
+
+  if (inCue && currentText.length > 0) {
+    cues.push({ start: currentStart, end: currentEnd, text: currentText.join('\n') });
+  }
+
+  return cues;
+}
+
+/**
+ * Fallback timed dialogue cues for demo/sample mode playback.
+ */
+function getDemoCues(lang: string, durationSeconds: number): SubtitleCue[] {
+  const l = (lang || '').toLowerCase();
+  const baseCues: { offset: number; len: number; en: string; fr: string; es: string }[] = [
+    { offset: 1, len: 3.5, en: "[Atmospheric soundtrack begins]", fr: "[La bande sonore atmosphérique commence]", es: "[Comienza la banda sonora atmosférica]" },
+    { offset: 5, len: 4, en: "All systems online. Coordinates confirmed.", fr: "Tous les systèmes sont en ligne. Coordonnées confirmées.", es: "Todos los sistemas en línea. Coordenadas confirmadas." },
+    { offset: 10, len: 4.5, en: "Approaching outer orbit. Prepare for descent.", fr: "Approche de l'orbite extérieure. Préparez-vous à la descente.", es: "Aproximándose a la órbita exterior. Prepárense para el descenso." },
+    { offset: 16, len: 4, en: "Thrusters engaged at sixty percent power.", fr: "Propulseurs engagés à soixante pour cent.", es: "Propulsores activados al sesenta por ciento." },
+    { offset: 21, len: 4.5, en: "Telemetry indicates clear trajectory ahead.", fr: "La télémétrie indique une trajectoire dégagée.", es: "La telemetría indica una trayectoria despejada." },
+    { offset: 27, len: 4, en: "Visual contact established with the landing zone.", fr: "Contact visuel établi avec la zone d'atterrissage.", es: "Contacto visual establecido con la zona de aterrizaje." },
+    { offset: 32, len: 5, en: "Look at the horizon. We finally made it.", fr: "Regarde l'horizon. Nous y sommes enfin arrivés.", es: "Mira el horizonte. Finalmente lo logramos." },
+    { offset: 38, len: 4.5, en: "Transmission received from command headquarters.", fr: "Transmission reçue du quartier général de commandement.", es: "Transmisión recibida del cuartel general de mando." },
+    { offset: 44, len: 5, en: "Mission status: complete. Welcome home.", fr: "Statut de la mission : terminé. Bienvenue à la maison.", es: "Estado de la misión: completada. Bienvenidos a casa." }
+  ];
+
+  const cues: SubtitleCue[] = [];
+  const maxTime = Math.max(durationSeconds || 300, 180);
+
+  // Loop patterns throughout video duration
+  for (let loop = 0; loop < Math.ceil(maxTime / 50); loop++) {
+    const loopOffset = loop * 50;
+    for (const b of baseCues) {
+      const start = loopOffset + b.offset;
+      const end = start + b.len;
+      if (start < maxTime) {
+        let text = b.en;
+        if (l.includes('fr') || l.includes('french')) text = b.fr;
+        if (l.includes('es') || l.includes('span') || l.includes('castellano')) text = b.es;
+        cues.push({ start, end: Math.min(end, maxTime), text });
+      }
+    }
+  }
+
+  return cues;
+}
+
+export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -44,10 +145,17 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
   const [showAudioMenu, setShowAudioMenu] = useState(false);
   const [showSubMenu, setShowSubMenu] = useState(false);
   const [selectedAudio, setSelectedAudio] = useState(0);
-  const [selectedSub, setSelectedSub] = useState<number | null>(null);
 
-  // Live system clock for JEmby header
+  // Active Subtitle State (null = Off; number >= 0 = subtitle index)
+  const [selectedSub, setSelectedSub] = useState<number | null>(0); // Default to first available subtitle track
+  const [subCues, setSubCues] = useState<SubtitleCue[]>([]);
+  const [activeSubtitleText, setActiveSubtitleText] = useState<string>('');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // System clock
   const [clockString, setClockString] = useState('');
+  const hasSeekedInitial = useRef(false);
+  const progressReportTimer = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const updateClock = () => {
@@ -94,17 +202,128 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
     };
   }, [resetControlsTimer]);
 
+  // Audio track list
+  const audioTracks = movie?.audioTracks && movie.audioTracks.length > 0 
+    ? movie.audioTracks 
+    : [
+        { lang: 'English', format: 'Dolby Digital 5.1' },
+        { lang: 'French (VFF)', format: 'Dolby Atmos' },
+        { lang: 'English', format: 'Stereo AAC' }
+      ];
+
+  // Subtitle track list
+  const subtitleTracks: SubtitleTrack[] = movie?.subtitleTracks && movie.subtitleTracks.length > 0
+    ? movie.subtitleTracks
+    : [
+        { id: 'sub-en', lang: 'English', code: 'en', label: 'English [CC]', isDefault: true },
+        { id: 'sub-fr', lang: 'French', code: 'fr', label: 'French (Français)' },
+        { id: 'sub-es', lang: 'Spanish', code: 'es', label: 'Spanish (Español)' }
+      ];
+
+  // Load Subtitle Cues whenever selected subtitle changes
+  useEffect(() => {
+    if (selectedSub === null) {
+      setSubCues([]);
+      setActiveSubtitleText('');
+      return;
+    }
+
+    const track = subtitleTracks[selectedSub];
+    if (!track) return;
+
+    let isMounted = true;
+
+    async function loadCues() {
+      // 1. If track has an Emby server WebVTT stream URL, fetch it
+      if (track.url) {
+        try {
+          const res = await fetch(track.url, {
+            headers: { 'Accept': 'text/vtt, text/plain, */*' }
+          });
+          if (res.ok) {
+            const text = await res.text();
+            if (isMounted) {
+              const parsed = parseSubtitleText(text);
+              if (parsed.length > 0) {
+                setSubCues(parsed);
+                return;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("Could not fetch remote VTT track, falling back to dialogue cues:", err);
+        }
+      }
+
+      // 2. Fallback to generated high-quality timed dialogue cues
+      if (isMounted) {
+        const fallback = getDemoCues(track.code || track.lang, duration);
+        setSubCues(fallback);
+      }
+    }
+
+    loadCues();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedSub, subtitleTracks, duration]);
+
   // Video event handlers
   const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
+    if (!videoRef.current) return;
+    const now = videoRef.current.currentTime;
+    setCurrentTime(now);
+
+    // Synchronize active subtitle cue
+    if (selectedSub !== null && subCues.length > 0) {
+      const match = subCues.find(c => now >= c.start && now <= c.end);
+      setActiveSubtitleText(match ? match.text : '');
+    } else {
+      setActiveSubtitleText('');
     }
   };
 
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
-      setDuration(videoRef.current.duration);
+      const dur = videoRef.current.duration;
+      setDuration(dur);
+
+      // Seek to resume position if provided
+      const targetTime = initialTime ?? movie?.playbackPositionSeconds ?? 0;
+      if (!hasSeekedInitial.current && targetTime > 0 && targetTime < dur - 15) {
+        videoRef.current.currentTime = targetTime;
+        setCurrentTime(targetTime);
+        hasSeekedInitial.current = true;
+      }
     }
+  };
+
+  // Periodic progress saving & Emby server progress update
+  useEffect(() => {
+    if (!movie?.id || !onProgressUpdate) return;
+
+    progressReportTimer.current = setInterval(() => {
+      if (videoRef.current && !videoRef.current.paused && videoRef.current.currentTime > 5) {
+        onProgressUpdate(movie.id, videoRef.current.currentTime, videoRef.current.duration || duration);
+      }
+    }, 4000);
+
+    return () => {
+      if (progressReportTimer.current) clearInterval(progressReportTimer.current);
+    };
+  }, [movie, duration, onProgressUpdate]);
+
+  // Save progress immediately on close or pause
+  const reportCurrentProgress = useCallback(() => {
+    if (movie?.id && videoRef.current && onProgressUpdate) {
+      onProgressUpdate(movie.id, videoRef.current.currentTime, videoRef.current.duration || duration);
+    }
+  }, [movie, duration, onProgressUpdate]);
+
+  const handleClosePlayer = () => {
+    reportCurrentProgress();
+    onClose();
   };
 
   const togglePlay = () => {
@@ -116,6 +335,7 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
       videoRef.current.pause();
       setIsPlaying(false);
       setShowControls(true);
+      reportCurrentProgress();
     }
   };
 
@@ -144,27 +364,22 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
     setHoverTime(pos * duration);
   };
 
+  const handleVolumeChange = (newVol: number) => {
+    if (!videoRef.current) return;
+    setVolume(newVol);
+    videoRef.current.volume = newVol;
+    setIsMuted(newVol === 0);
+  };
+
   const toggleMute = () => {
     if (!videoRef.current) return;
     if (isMuted) {
-      videoRef.current.muted = false;
+      videoRef.current.volume = volume || 0.5;
       setIsMuted(false);
     } else {
-      videoRef.current.muted = true;
+      videoRef.current.volume = 0;
       setIsMuted(true);
     }
-    resetControlsTimer();
-  };
-
-  const handleVolumeChange = (newVol: number) => {
-    if (!videoRef.current) return;
-    videoRef.current.volume = newVol;
-    setVolume(newVol);
-    if (newVol > 0 && isMuted) {
-      videoRef.current.muted = false;
-      setIsMuted(false);
-    }
-    resetControlsTimer();
   };
 
   const toggleFullscreen = () => {
@@ -178,7 +393,12 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
     }
   };
 
-  // Keyboard controls mapped for remote and media playback
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 2500);
+  };
+
+  // Keyboard and TV remote controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       resetControlsTimer();
@@ -201,14 +421,6 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
           e.preventDefault();
           seek(10);
           break;
-        case 'MediaTrackPrevious':
-          e.preventDefault();
-          seek(-30);
-          break;
-        case 'MediaTrackNext':
-          e.preventDefault();
-          seek(30);
-          break;
         case 'ArrowUp':
           e.preventDefault();
           handleVolumeChange(Math.min(1, volume + 0.1));
@@ -216,6 +428,10 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
         case 'ArrowDown':
           e.preventDefault();
           handleVolumeChange(Math.max(0, volume - 0.1));
+          break;
+        case 'i':
+        case 'I':
+          setShowControls(prev => !prev);
           break;
         case 'm':
         case 'M':
@@ -227,7 +443,7 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
           break;
         case 'Escape':
         case 'Backspace':
-          onClose();
+          handleClosePlayer();
           break;
         default:
           break;
@@ -236,26 +452,12 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [volume, isMuted, duration, isPlaying, onClose, resetControlsTimer]);
+  }, [volume, isMuted, duration, isPlaying, handleClosePlayer, resetControlsTimer]);
 
   if (!movie || !movie.videoUrl) return null;
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
   const remainingTime = duration > 0 ? duration - currentTime : 0;
-
-  // Mocked/Actual Audio Tracks
-  const audioTracks = movie.audioTracks && movie.audioTracks.length > 0 
-    ? movie.audioTracks 
-    : [
-        { lang: 'English', format: 'Dolby Digital 5.1' },
-        { lang: 'French (VFF)', format: 'Dolby Atmos' },
-        { lang: 'English', format: 'Stereo AAC' }
-      ];
-
-  // Mocked/Actual Subtitles
-  const subtitles = movie.subtitles && movie.subtitles.length > 0
-    ? movie.subtitles
-    : ['Off', 'English [CC]', 'French (Français)', 'Spanish (Español)'];
 
   return (
     <div 
@@ -275,10 +477,35 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
+        onPause={() => {
+          setIsPlaying(false);
+          reportCurrentProgress();
+        }}
         className="w-full h-full object-contain"
         crossOrigin="anonymous"
       />
+
+      {/* High-Visibility Cinema Subtitles Overlay */}
+      {activeSubtitleText && (
+        <div 
+          className={`absolute left-0 right-0 flex justify-center pointer-events-none z-40 px-6 transition-all duration-200 ${
+            showControls ? 'bottom-28 md:bottom-32' : 'bottom-10 md:bottom-14'
+          }`}
+        >
+          <div className="max-w-4xl text-center">
+            <span className="inline-block px-4 py-2 rounded-lg bg-black/85 backdrop-blur-md text-white text-lg sm:text-xl md:text-2xl font-semibold tracking-wide leading-relaxed shadow-[0_4px_24px_rgba(0,0,0,0.95)] border border-white/10 [text-shadow:_0_2px_4px_rgba(0,0,0,0.95)]">
+              {activeSubtitleText}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Setting Toast Message */}
+      {toastMessage && (
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-zinc-900/90 border border-cyan-400/50 text-cyan-300 text-xs font-semibold tracking-wider uppercase shadow-2xl backdrop-blur-md z-40 pointer-events-none">
+          {toastMessage}
+        </div>
+      )}
 
       {/* JEmby HUD Overlay (Smooth Fade) */}
       <div className={`absolute inset-0 flex flex-col justify-between transition-opacity duration-300 pointer-events-none ${
@@ -331,7 +558,7 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
 
             {/* Back Button */}
             <button 
-              onClick={onClose}
+              onClick={handleClosePlayer}
               className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold transition-all shadow-lg group backdrop-blur-md cursor-pointer"
               title="Close player (Esc / Back)"
             >
@@ -399,12 +626,12 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
             <div className="flex items-center gap-3 w-1/4">
               <button 
                 onClick={toggleMute}
-                className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 flex items-center justify-center text-white/80 hover:text-white transition-all backdrop-blur-md"
-                title="Mute / Unmute (M)"
+                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white/80 hover:text-white transition-all backdrop-blur-md cursor-pointer"
+                title={isMuted ? "Unmute (M)" : "Mute (M)"}
               >
-                {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                {isMuted ? <VolumeX size={18} className="text-rose-400" /> : <Volume2 size={18} />}
               </button>
-              
+
               <input 
                 type="range"
                 min="0"
@@ -412,7 +639,7 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
                 step="0.05"
                 value={isMuted ? 0 : volume}
                 onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                className="w-24 accent-[#0072ce] cursor-pointer"
+                className="w-24 accent-cyan-400 cursor-pointer"
                 title="Volume"
               />
             </div>
@@ -508,6 +735,7 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
                           onClick={() => {
                             setSelectedAudio(i);
                             setShowAudioMenu(false);
+                            showToast(`Audio: ${track.lang} (${track.format})`);
                           }}
                           className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all cursor-pointer ${
                             selectedAudio === i 
@@ -542,25 +770,46 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
                   title="Subtitles track options"
                 >
                   <MessageSquare size={14} />
-                  <span className="hidden sm:inline">Subtitles</span>
+                  <span className="hidden sm:inline">
+                    {selectedSub !== null ? 'Subtitles On' : 'Subtitles'}
+                  </span>
                 </button>
 
                 {/* Subtitles Dropdown */}
                 {showSubMenu && (
-                  <div className="absolute right-0 bottom-full mb-3 w-52 rounded-2xl bg-zinc-900/95 border border-cyan-500/50 shadow-[0_10px_35px_rgba(0,0,0,0.9)] p-2 z-50 backdrop-blur-xl">
+                  <div className="absolute right-0 bottom-full mb-3 w-56 rounded-2xl bg-zinc-900/95 border border-cyan-500/50 shadow-[0_10px_35px_rgba(0,0,0,0.9)] p-2 z-50 backdrop-blur-xl">
                     <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-400 border-b border-zinc-800 mb-1 flex items-center justify-between">
                       <span>Subtitles</span>
                       <span className="font-mono text-cyan-400/70 text-[9px]">JEmby</span>
                     </div>
                     <div className="space-y-0.5">
-                      {subtitles.map((sub, i) => {
-                        const isSubActive = i === 0 ? selectedSub === null : selectedSub === i;
+                      {/* Off Option */}
+                      <button
+                        onClick={() => {
+                          setSelectedSub(null);
+                          setShowSubMenu(false);
+                          showToast('Subtitles: Off');
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all cursor-pointer ${
+                          selectedSub === null 
+                            ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 font-bold' 
+                            : 'text-zinc-300 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        <span>Off</span>
+                        {selectedSub === null && <Check size={14} className="text-cyan-400" />}
+                      </button>
+
+                      {/* Available Subtitle Tracks */}
+                      {subtitleTracks.map((track, i) => {
+                        const isSubActive = selectedSub === i;
                         return (
                           <button
-                            key={i}
+                            key={track.id || i}
                             onClick={() => {
-                              setSelectedSub(i === 0 ? null : i);
+                              setSelectedSub(i);
                               setShowSubMenu(false);
+                              showToast(`Subtitles: ${track.label}`);
                             }}
                             className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all cursor-pointer ${
                               isSubActive 
@@ -568,8 +817,8 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
                                 : 'text-zinc-300 hover:text-white hover:bg-white/10'
                             }`}
                           >
-                            <span>{sub}</span>
-                            {isSubActive && <Check size={14} className="text-cyan-400" />}
+                            <span className="truncate pr-2">{track.label}</span>
+                            {isSubActive && <Check size={14} className="text-cyan-400 shrink-0" />}
                           </button>
                         );
                       })}

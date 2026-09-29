@@ -1,12 +1,12 @@
 import { Movie } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, ArrowLeft, Star, EyeOff } from 'lucide-react';
+import { Play, ArrowLeft, Star, RotateCcw } from 'lucide-react';
 import { useEffect } from 'react';
 
 interface MovieDetailsProps {
   movie: Movie | null;
   onClose: () => void;
-  onPlay: () => void;
+  onPlay: (resumeSeconds?: number) => void;
 }
 
 export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
@@ -18,6 +18,8 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
     return `${h}:${m.toString().padStart(2, '0')}`;
   };
 
+  const hasResume = !!(movie?.playbackPositionSeconds && movie.playbackPositionSeconds > 10);
+
   // Keyboard navigation for TV remotes
   useEffect(() => {
     if (!movie) return;
@@ -26,16 +28,16 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
         e.preventDefault();
         onClose();
       } else if (e.key === 'Enter') {
-        // If user presses Enter without focusing back button, default to Play
+        // If user presses Enter without focusing another button, default to Play/Resume
         if (document.activeElement?.tagName !== 'BUTTON') {
           e.preventDefault();
-          onPlay();
+          onPlay(hasResume ? movie.playbackPositionSeconds : 0);
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [movie, onClose, onPlay]);
+  }, [movie, hasResume, onClose, onPlay]);
 
   return (
     <AnimatePresence>
@@ -141,16 +143,39 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                 </div>
 
                 {/* Primary Action Button Row (TV Remote optimized) */}
-                <div className="flex items-center gap-4 mb-7">
-                  <button
-                    autoFocus
-                    onClick={onPlay}
-                    className="flex items-center gap-3 px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-base shadow-[0_0_25px_rgba(6,182,212,0.6)] focus:outline-none focus:ring-4 focus:ring-cyan-300 transform focus:scale-105 transition-all"
-                  >
-                    <Play size={20} fill="currentColor" />
-                    <span>Play Movie</span>
-                    <span className="px-1.5 py-0.5 rounded bg-black/30 border border-white/20 text-[10px] font-mono ml-2">ENTER</span>
-                  </button>
+                <div className="flex flex-wrap items-center gap-4 mb-7">
+                  {hasResume ? (
+                    <>
+                      <button
+                        autoFocus
+                        onClick={() => onPlay(movie.playbackPositionSeconds)}
+                        className="flex items-center gap-3 px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-base shadow-[0_0_25px_rgba(6,182,212,0.6)] focus:outline-none focus:ring-4 focus:ring-cyan-300 transform focus:scale-105 transition-all cursor-pointer"
+                      >
+                        <Play size={20} fill="currentColor" />
+                        <span>Resume from {Math.floor((movie.playbackPositionSeconds || 0) / 60)}m ({Math.round(movie.playbackPercentage || 0)}%)</span>
+                        <span className="px-1.5 py-0.5 rounded bg-black/30 border border-white/20 text-[10px] font-mono ml-2">ENTER</span>
+                      </button>
+
+                      <button
+                        onClick={() => onPlay(0)}
+                        className="flex items-center gap-2 px-5 py-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/90 hover:text-white font-semibold text-sm border border-white/20 transition-all cursor-pointer"
+                        title="Play from start"
+                      >
+                        <RotateCcw size={16} />
+                        <span>Start from Beginning</span>
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      autoFocus
+                      onClick={() => onPlay(0)}
+                      className="flex items-center gap-3 px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-base shadow-[0_0_25px_rgba(6,182,212,0.6)] focus:outline-none focus:ring-4 focus:ring-cyan-300 transform focus:scale-105 transition-all cursor-pointer"
+                    >
+                      <Play size={20} fill="currentColor" />
+                      <span>Play Movie</span>
+                      <span className="px-1.5 py-0.5 rounded bg-black/30 border border-white/20 text-[10px] font-mono ml-2">ENTER</span>
+                    </button>
+                  )}
                 </div>
                 
                 {/* Audio/Subtitles row */}

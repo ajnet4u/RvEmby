@@ -1,6 +1,6 @@
-import { Home, Film, Disc3, RotateCcw, Heart, ChevronUp, Settings, Wifi, WifiOff } from 'lucide-react';
+import { Home, Film, Disc3, RotateCcw, Heart, ChevronUp, Settings, Wifi, WifiOff, Cpu } from 'lucide-react';
 
-export type NavTab = 'home' | 'movies' | 'recent' | 'collections' | 'favorites';
+export type NavTab = 'home' | 'movies' | 'recent' | 'collections' | 'favorites' | 'codecs';
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -17,6 +17,7 @@ export function Sidebar({ activeTab, onSelectTab, onOpenSettings, isConnected, m
     { id: 'recent', icon: RotateCcw, label: 'RECENT' },
     { id: 'collections', icon: Disc3, label: 'COLLECTIONS' },
     { id: 'favorites', icon: Heart, label: 'FAVORITES' },
+    { id: 'codecs', icon: Cpu, label: 'CODECS' },
   ];
 
   return (
