@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Hls from 'hls.js';
 import { Movie, SubtitleTrack, AudioTrackInfo, ServerSettings } from '../types';
 import { 
@@ -121,7 +121,7 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
   const [selectedAudio, setSelectedAudio] = useState(0);
 
   // Subtitle track list: strictly from Emby (NO dummy fallback)
-  const subtitleTracks: SubtitleTrack[] = movie?.subtitleTracks || [];
+  const subtitleTracks = useMemo<SubtitleTrack[]>(() => movie?.subtitleTracks || [], [movie?.subtitleTracks]);
 
   // Active Subtitle State (null = Off; number >= 0 = subtitle index)
   // Subtitles default to OFF unless a real subtitle track has isDefault: true
@@ -184,16 +184,18 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
     return () => {
       if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
     };
-  }, [resetControlsTimer]);
+  }, [isPlaying]);
 
   // Audio track list
-  const audioTracks: AudioTrackInfo[] = movie?.audioTracks && movie.audioTracks.length > 0 
-    ? movie.audioTracks 
-    : [
-        { lang: 'English', format: 'Dolby Digital 5.1', codec: 'ac3' },
-        { lang: 'French (VFF)', format: 'Dolby Atmos', codec: 'eac3' },
-        { lang: 'English', format: 'Stereo AAC', codec: 'aac' }
-      ];
+  const audioTracks = useMemo<AudioTrackInfo[]>(() => {
+    return movie?.audioTracks && movie.audioTracks.length > 0 
+      ? movie.audioTracks 
+      : [
+          { lang: 'English', format: 'Dolby Digital 5.1', codec: 'ac3' },
+          { lang: 'French (VFF)', format: 'Dolby Atmos', codec: 'eac3' },
+          { lang: 'English', format: 'Stereo AAC', codec: 'aac' }
+        ];
+  }, [movie?.audioTracks]);
 
   // Active stream URL and audio transcoding state
   const [activeVideoUrl, setActiveVideoUrl] = useState<string>(movie?.videoUrl || '');
@@ -202,7 +204,7 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
   });
 
   useEffect(() => {
-    if (movie?.videoUrl) {
+    if (movie?.videoUrl && movie.videoUrl !== activeVideoUrl) {
       setActiveVideoUrl(movie.videoUrl);
       setIsAudioTranscoding(movie.videoUrl.includes('AudioCodec=aac') || movie.videoUrl.includes('.m3u8'));
     }
@@ -210,7 +212,7 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
 
   // Report playback start and stopped to Emby server for active dashboard display
   useEffect(() => {
-    if (!settings?.apiKey || !movie) return;
+    if (!settings?.apiKey || !movie?.id) return;
     const mediaSourceId = movie.mediaSourceId || movie.id;
     const primaryAudio = audioTracks[selectedAudio];
     const subTrack = selectedSub !== null ? subtitleTracks[selectedSub] : undefined;
@@ -225,7 +227,7 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
       const cur = videoRef.current?.currentTime || 0;
       reportEmbyPlaybackStopped(settings, movie.id, mediaSourceId, playSessionId, cur);
     };
-  }, [settings, movie]);
+  }, [movie?.id, settings?.apiKey, settings?.url]);
 
   // Load stream via HLS.js if .m3u8, or native HTML5 video otherwise
   useEffect(() => {
@@ -354,27 +356,23 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
     }
   };
 
+  const activeSubTrack = selectedSub !== null && subtitleTracks[selectedSub] ? subtitleTracks[selectedSub] : null;
+  const activeSubUrl = activeSubTrack?.url || null;
+
   // Load Subtitle Cues whenever selected subtitle changes
   useEffect(() => {
-    if (selectedSub === null) {
-      setSubCues([]);
-      setActiveSubtitleText('');
-      return;
-    }
-
-    const track = subtitleTracks[selectedSub];
-    if (!track) {
-      setSubCues([]);
-      setActiveSubtitleText('');
+    if (selectedSub === null || !activeSubTrack || !activeSubUrl) {
+      setSubCues(prev => (prev.length > 0 ? [] : prev));
+      setActiveSubtitleText(prev => (prev !== '' ? '' : prev));
       return;
     }
 
     let isMounted = true;
 
     async function loadCues() {
-      if (track.url) {
+      if (activeSubUrl) {
         // 1. Try our server proxy first to bypass any browser CORS restrictions
-        const proxyUrl = `/api/subtitles?url=${encodeURIComponent(track.url)}`;
+        const proxyUrl = `/api/subtitles?url=${encodeURIComponent(activeSubUrl)}`;
         try {
           const res = await fetch(proxyUrl);
           if (res.ok) {
@@ -383,7 +381,7 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
               const parsed = parseSubtitleText(text);
               if (parsed.length > 0) {
                 setSubCues(parsed);
-                showToast(`Subtitles: ${track.label} (${parsed.length} cues)`);
+                showToast(`Subtitles: ${activeSubTrack.label} (${parsed.length} cues)`);
                 return;
               }
             }
@@ -394,7 +392,7 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
 
         // 2. Direct fetch fallback
         try {
-          const res = await fetch(track.url, {
+          const res = await fetch(activeSubUrl, {
             headers: { 'Accept': 'text/vtt, text/plain, */*' }
           });
           if (res.ok) {
@@ -403,7 +401,7 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
               const parsed = parseSubtitleText(text);
               if (parsed.length > 0) {
                 setSubCues(parsed);
-                showToast(`Subtitles: ${track.label} (${parsed.length} cues)`);
+                showToast(`Subtitles: ${activeSubTrack.label} (${parsed.length} cues)`);
                 return;
               }
             }
@@ -414,12 +412,12 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
       }
 
       if (isMounted) {
-        setSubCues([]);
-        setActiveSubtitleText('');
-        if (track.isText === false) {
-          showToast(`Note: "${track.label}" is image-based (PGS/Bitmap). Text subtitles (SRT/ASS) are recommended.`);
+        setSubCues(prev => (prev.length > 0 ? [] : prev));
+        setActiveSubtitleText(prev => (prev !== '' ? '' : prev));
+        if (activeSubTrack.isText === false) {
+          showToast(`Note: "${activeSubTrack.label}" is image-based (PGS/Bitmap). Text subtitles (SRT/ASS) are recommended.`);
         } else {
-          showToast(`No text subtitle cues found for "${track.label}".`);
+          showToast(`No text subtitle cues found for "${activeSubTrack.label}".`);
         }
       }
     }
@@ -429,7 +427,7 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
     return () => {
       isMounted = false;
     };
-  }, [selectedSub, subtitleTracks]);
+  }, [selectedSub, activeSubUrl]);
 
   // Video event handlers
   const handleTimeUpdate = () => {
@@ -463,18 +461,29 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
 
   // Periodic progress saving & Emby server progress update
   useEffect(() => {
-    if (!movie?.id || !onProgressUpdate) return;
+    if (!movie?.id) return;
 
     progressReportTimer.current = setInterval(() => {
-      if (videoRef.current && !videoRef.current.paused && videoRef.current.currentTime > 5) {
-        onProgressUpdate(movie.id, videoRef.current.currentTime, videoRef.current.duration || duration);
+      if (videoRef.current && !videoRef.current.paused && videoRef.current.currentTime > 2) {
+        const curTime = videoRef.current.currentTime;
+        const dur = videoRef.current.duration || duration;
+        if (onProgressUpdate) {
+          onProgressUpdate(movie.id, curTime, dur);
+        }
+        if (settings?.apiKey && movie) {
+          const mediaSourceId = movie.mediaSourceId || movie.id;
+          reportEmbyPlaybackProgress(settings, movie.id, mediaSourceId, playSessionId, curTime, false, {
+            audioStreamIndex: audioTracks[selectedAudio]?.index,
+            subtitleStreamIndex: selectedSub !== null ? subtitleTracks[selectedSub]?.index : undefined
+          });
+        }
       }
     }, 4000);
 
     return () => {
       if (progressReportTimer.current) clearInterval(progressReportTimer.current);
     };
-  }, [movie, duration, onProgressUpdate]);
+  }, [movie?.id, duration, onProgressUpdate, settings?.apiKey, settings?.url, selectedAudio, selectedSub]);
 
   // Save progress immediately on close or pause
   const reportCurrentProgress = useCallback(() => {

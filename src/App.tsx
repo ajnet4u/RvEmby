@@ -230,7 +230,7 @@ export default function App() {
       }
     }
     loadMovies();
-  }, [settings]);
+  }, [settings.url, settings.apiKey]);
 
   // Handle Playback progress updates from VideoPlayer
   const handleProgressUpdate = useCallback((movieId: string, positionSeconds: number, durationSeconds: number) => {
@@ -250,11 +250,10 @@ export default function App() {
     } else if (positionSeconds > 10) {
       setContinueWatching(prev => {
         const existing = prev.find(m => m.id === movieId);
-        const sourceMovie = existing || movies.find(m => m.id === movieId);
-        if (!sourceMovie) return prev;
+        if (!existing) return prev;
 
         const updated: Movie = {
-          ...sourceMovie,
+          ...existing,
           playbackPositionSeconds: Math.floor(positionSeconds),
           playbackPercentage: percentage,
           lastWatchedAt: Date.now()
@@ -265,7 +264,7 @@ export default function App() {
 
       setMovies(prev => prev.map(m => m.id === movieId ? { ...m, playbackPositionSeconds: Math.floor(positionSeconds), playbackPercentage: percentage } : m));
     }
-  }, [isConnected, settings, movies]);
+  }, [isConnected, settings.url, settings.apiKey]);
 
   // Dismiss an item from Continue Watching
   const handleDismissContinueWatching = useCallback((movieId: string) => {
