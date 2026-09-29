@@ -134,6 +134,11 @@ app.post('/api/settings', (req, res) => {
   }
 });
 
+// Health check endpoint
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', server: 'jemby', time: new Date().toISOString() });
+});
+
 async function main() {
   // Sync and ensure jemby-config.json exists on disk
   syncConfigOnStartup();
@@ -145,15 +150,43 @@ async function main() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, 'dist')));
+    // Correctly resolve static assets whether running from dist/server.js or project root
+    const staticDir = fs.existsSync(path.join(__dirname, 'index.html'))
+      ? __dirname
+      : path.join(__dirname, 'dist');
+
+    console.log(`[JEmby Server] Serving static files from: ${staticDir}`);
+    app.use(express.static(staticDir));
     app.get('*', (_req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+      const indexPath = path.join(staticDir, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(500).send(`[JEmby Server Error] index.html not found at: ${indexPath}`);
+      }
     });
   }
 
-  app.listen(Number(port), '0.0.0.0', () => {
-    console.log(`[JEmby Server] Listening on http://0.0.0.0:${port}`);
+  // Primary port (from env PORT or default)
+  const primaryPort = Number(port) || 80;
+  app.listen(primaryPort, '0.0.0.0', () => {
+    console.log(`[JEmby Server] Listening on http://0.0.0.0:${primaryPort}`);
   });
+
+  // Secondary port listener: ensures BOTH 3000:80 and 3000:3000 Docker port mappings work!
+  const secondaryPort = primaryPort === 80 ? 3000 : (primaryPort === 3000 ? 80 : null);
+  if (secondaryPort) {
+    try {
+      const secServer = app.listen(secondaryPort, '0.0.0.0', () => {
+        console.log(`[JEmby Server] Also listening on http://0.0.0.0:${secondaryPort}`);
+      });
+      secServer.on('error', (err: any) => {
+        if (err.code !== 'EADDRINUSE') {
+          console.warn(`[JEmby Server] Secondary port ${secondaryPort} notice:`, err.message);
+        }
+      });
+    } catch (e) {}
+  }
 }
 
 main();

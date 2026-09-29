@@ -46,5 +46,6 @@ COPY --from=builder /app/dist ./dist
 RUN mkdir -p /app/data
 
 EXPOSE 80
+EXPOSE 3000
 
 CMD ["node", "dist/server.js"]
