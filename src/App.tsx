@@ -636,6 +636,7 @@ export default function App() {
         <VideoPlayer 
           movie={playingMovie} 
           initialTime={resumeTime}
+          settings={settings}
           onClose={() => setPlayingMovie(null)} 
           onProgressUpdate={handleProgressUpdate}
         />

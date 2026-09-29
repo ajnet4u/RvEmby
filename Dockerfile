@@ -17,7 +17,7 @@ COPY package.json package-lock.json* bun.lock* ./
 RUN npm pkg delete devDependencies.electron devDependencies.electron-builder devDependencies.wait-on devDependencies.concurrently
 
 # Install build dependencies
-RUN npm install --ignore-scripts --no-audit --no-fund && npm cache clean --force
+RUN npm install --loglevel=error --ignore-scripts --no-audit --no-fund && npm cache clean --force
 
 # Copy application source
 COPY . .
@@ -37,7 +37,7 @@ ENV DATA_DIR=/app/data
 # Copy dependencies
 COPY package.json package-lock.json* bun.lock* ./
 RUN npm pkg delete devDependencies.electron devDependencies.electron-builder devDependencies.wait-on devDependencies.concurrently
-RUN npm install --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force
+RUN npm install --omit=dev --loglevel=error --ignore-scripts --no-audit --no-fund && npm cache clean --force
 
 # Copy compiled build artifacts (SPA + server.js)
 COPY --from=builder /app/dist ./dist

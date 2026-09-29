@@ -74,6 +74,171 @@ export function buildEmbyStreamUrl(
 }
 
 /**
+ * Builds an Emby HLS Stream URL (master.m3u8).
+ * HLS segmenting allows instant forward/backward seeking and scrubbing during transcoding,
+ * without restarting from 0:00!
+ */
+export function buildEmbyHlsStreamUrl(
+  baseUrl: string,
+  itemId: string,
+  apiKey: string,
+  options?: {
+    mediaSourceId?: string;
+    audioStreamIndex?: number;
+    subtitleStreamIndex?: number;
+    forceTranscodeAudio?: boolean;
+    audioCodec?: string;
+    channels?: number;
+    playSessionId?: string;
+  }
+): string {
+  const cleanBase = baseUrl.replace(/\/$/, '');
+  const mediaSourceId = options?.mediaSourceId || itemId;
+
+  const params = new URLSearchParams({
+    MediaSourceId: mediaSourceId,
+    VideoCodec: 'copy', // Stream copy video (0% CPU, 100% picture quality)
+    AudioCodec: 'aac',
+    AudioBitRate: '384000',
+    TranscodingMaxAudioChannels: (options?.channels || 2).toString(),
+    EnableAudioVbrEncoding: 'false',
+    DeviceId: 'jemby-web-player',
+    api_key: apiKey
+  });
+
+  if (options?.audioStreamIndex !== undefined) {
+    params.append('AudioStreamIndex', options.audioStreamIndex.toString());
+  }
+  if (options?.subtitleStreamIndex !== undefined && options.subtitleStreamIndex >= 0) {
+    params.append('SubtitleStreamIndex', options.subtitleStreamIndex.toString());
+  }
+  if (options?.playSessionId) {
+    params.append('PlaySessionId', options.playSessionId);
+  }
+
+  return `${cleanBase}/Videos/${itemId}/master.m3u8?${params.toString()}`;
+}
+
+/**
+ * Reports playback start to Emby server.
+ * This makes the active stream appear immediately in the Emby Server Dashboard!
+ */
+export async function reportEmbyPlaybackStart(
+  settings: ServerSettings,
+  itemId: string,
+  mediaSourceId: string,
+  playSessionId: string,
+  options?: {
+    audioStreamIndex?: number;
+    subtitleStreamIndex?: number;
+    isTranscoding?: boolean;
+  }
+): Promise<void> {
+  if (!settings.apiKey) return;
+  const baseUrl = settings.url.replace(/\/$/, '');
+  const url = `${baseUrl}/Sessions/Playing?api_key=${encodeURIComponent(settings.apiKey)}`;
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Emby-Token': settings.apiKey,
+        'X-Emby-Device-Name': 'JEmby Cinema Player',
+        'X-Emby-Device-Id': 'jemby-web-player'
+      },
+      body: JSON.stringify({
+        ItemId: itemId,
+        MediaSourceId: mediaSourceId,
+        AudioStreamIndex: options?.audioStreamIndex,
+        SubtitleStreamIndex: options?.subtitleStreamIndex,
+        PlayMethod: options?.isTranscoding ? 'DirectStream' : 'DirectPlay',
+        PlaySessionId: playSessionId,
+        CanSeek: true
+      })
+    });
+  } catch (err) {
+    console.warn('[Emby Session] Error reporting start:', err);
+  }
+}
+
+/**
+ * Reports playback progress ticks to Emby server.
+ * Updates current playback position, play/pause state in Emby Dashboard in real time.
+ */
+export async function reportEmbyPlaybackProgress(
+  settings: ServerSettings,
+  itemId: string,
+  mediaSourceId: string,
+  playSessionId: string,
+  positionSeconds: number,
+  isPaused: boolean,
+  options?: {
+    audioStreamIndex?: number;
+    subtitleStreamIndex?: number;
+  }
+): Promise<void> {
+  if (!settings.apiKey) return;
+  const baseUrl = settings.url.replace(/\/$/, '');
+  const url = `${baseUrl}/Sessions/Playing/Progress?api_key=${encodeURIComponent(settings.apiKey)}`;
+  const ticks = Math.floor(positionSeconds * 10000000);
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Emby-Token': settings.apiKey,
+        'X-Emby-Device-Name': 'JEmby Cinema Player',
+        'X-Emby-Device-Id': 'jemby-web-player'
+      },
+      body: JSON.stringify({
+        ItemId: itemId,
+        MediaSourceId: mediaSourceId,
+        PositionTicks: ticks,
+        IsPaused: isPaused,
+        Event: isPaused ? 'Pause' : 'TimeUpdate',
+        PlaySessionId: playSessionId,
+        AudioStreamIndex: options?.audioStreamIndex,
+        SubtitleStreamIndex: options?.subtitleStreamIndex
+      })
+    });
+  } catch (err) {}
+}
+
+/**
+ * Reports playback stopped to Emby server.
+ * Closes the active session in Emby Dashboard and updates UserData resume progress.
+ */
+export async function reportEmbyPlaybackStopped(
+  settings: ServerSettings,
+  itemId: string,
+  mediaSourceId: string,
+  playSessionId: string,
+  positionSeconds: number
+): Promise<void> {
+  if (!settings.apiKey) return;
+  const baseUrl = settings.url.replace(/\/$/, '');
+  const url = `${baseUrl}/Sessions/Playing/Stopped?api_key=${encodeURIComponent(settings.apiKey)}`;
+  const ticks = Math.floor(positionSeconds * 10000000);
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Emby-Token': settings.apiKey,
+        'X-Emby-Device-Name': 'JEmby Cinema Player',
+        'X-Emby-Device-Id': 'jemby-web-player'
+      },
+      body: JSON.stringify({
+        ItemId: itemId,
+        MediaSourceId: mediaSourceId,
+        PositionTicks: ticks,
+        PlaySessionId: playSessionId
+      })
+    });
+  } catch (err) {}
+}
+
+/**
  * Tests connection to an Emby or Jellyfin server.
  */
 export async function testEmbyConnection(settings: ServerSettings): Promise<{ serverName: string; version: string }> {
@@ -192,23 +357,40 @@ export function mapEmbyItemToMovie(item: any, baseUrl: string, settings: ServerS
   const mediaSourceId = item.MediaSources?.[0]?.Id || item.Id;
 
   // Intelligently build video stream URL:
-  // Automatically transcode audio to AAC if AC3, EAC3, DTS, TrueHD (VideoCodec=copy, AudioCodec=aac)
-  const videoUrl = buildEmbyStreamUrl(baseUrl, item.Id, settings.apiKey, {
-    mediaSourceId,
-    audioStreamIndex: primaryAudio?.index,
-    audioCodec: primaryAudio?.codec,
-    channels: 2 // Stereo downmix guarantees speech and sound in all web browsers!
-  });
+  // Check if primary audio requires AAC transcoding
+  const needsAudioTranscode = primaryAudio?.codec ? !isAudioCodecSupported(primaryAudio.codec) : true;
+
+  // If audio requires transcode, use HLS (master.m3u8) so browser can seek/scrub smoothly!
+  // If native audio, use direct static stream
+  const videoUrl = needsAudioTranscode
+    ? buildEmbyHlsStreamUrl(baseUrl, item.Id, settings.apiKey, {
+        mediaSourceId,
+        audioStreamIndex: primaryAudio?.index,
+        audioCodec: primaryAudio?.codec,
+        channels: 2 // Stereo downmix guarantees dialogue in all browsers!
+      })
+    : buildEmbyStreamUrl(baseUrl, item.Id, settings.apiKey, {
+        mediaSourceId,
+        audioStreamIndex: primaryAudio?.index,
+        audioCodec: primaryAudio?.codec,
+        forceTranscodeAudio: false
+      });
 
   // Extract complete SubtitleTrack objects with direct WebVTT stream URLs
   const subtitleTracks: SubtitleTrack[] = subtitleStreams.map((s: any, idx: number): SubtitleTrack => {
     const streamIndex = s.Index !== undefined ? s.Index : idx;
     const langCode = (s.Language || 'und').toLowerCase();
     const langName = s.Language ? s.Language.toUpperCase() : 'Unknown';
-    const label = s.DisplayTitle || s.Title || `${langName} Subtitle`;
+    const codec = (s.Codec || 'vtt').toLowerCase();
+    const isText = !['pgssub', 'pgs', 'dvd_subtitle', 'vobsub'].includes(codec) && s.IsText !== false;
     
-    // Emby serves WebVTT for any subtitle track via Stream.vtt endpoint
-    const vttUrl = `${baseUrl}/Videos/${item.Id}/Subtitles/${streamIndex}/Stream.vtt?api_key=${encodeURIComponent(settings.apiKey)}`;
+    let label = s.DisplayTitle || s.Title || `${langName} Subtitle`;
+    if (!isText && !label.includes('PGS') && !label.includes('Bitmap')) {
+      label += ' (Bitmap)';
+    }
+    
+    // Official Emby endpoint: /Videos/{Id}/{MediaSourceId}/Subtitles/{Index}/0/Stream.vtt
+    const vttUrl = `${baseUrl}/Videos/${item.Id}/${mediaSourceId}/Subtitles/${streamIndex}/0/Stream.vtt?api_key=${encodeURIComponent(settings.apiKey)}`;
     
     return {
       id: `sub-${item.Id}-${streamIndex}`,
@@ -216,9 +398,10 @@ export function mapEmbyItemToMovie(item: any, baseUrl: string, settings: ServerS
       lang: langName,
       code: langCode,
       label: label,
-      format: (s.Codec || 'vtt').toLowerCase(),
+      format: codec,
       url: vttUrl,
-      isDefault: !!s.IsDefault
+      isDefault: !!s.IsDefault,
+      isText
     };
   });
 

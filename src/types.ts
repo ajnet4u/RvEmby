@@ -7,6 +7,7 @@ export interface SubtitleTrack {
   format?: string;
   url?: string;
   isDefault?: boolean;
+  isText?: boolean;
 }
 
 export interface AudioTrackInfo {

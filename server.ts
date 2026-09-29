@@ -139,6 +139,31 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', server: 'jemby', time: new Date().toISOString() });
 });
 
+// Subtitle proxy endpoint to eliminate CORS issues when fetching WebVTT from local Emby servers
+app.get('/api/subtitles', async (req, res) => {
+  const targetUrl = req.query.url as string;
+  if (!targetUrl) {
+    return res.status(400).send('Missing url parameter');
+  }
+  try {
+    const fetchRes = await fetch(targetUrl, {
+      headers: {
+        'Accept': 'text/vtt, text/plain, */*'
+      }
+    });
+    if (!fetchRes.ok) {
+      return res.status(fetchRes.status).send(`Failed to fetch subtitle from Emby: ${fetchRes.statusText}`);
+    }
+    const text = await fetchRes.text();
+    res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.send(text);
+  } catch (err: any) {
+    console.error('[JEmby Server] Subtitle proxy error:', err);
+    res.status(500).send(err.message || 'Error proxying subtitle');
+  }
+});
+
 async function main() {
   // Sync and ensure jemby-config.json exists on disk
   syncConfigOnStartup();

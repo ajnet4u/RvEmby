@@ -1,6 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Movie, SubtitleTrack, AudioTrackInfo } from '../types';
-import { isAudioCodecSupported } from '../api/emby';
+import Hls from 'hls.js';
+import { Movie, SubtitleTrack, AudioTrackInfo, ServerSettings } from '../types';
+import { 
+  isAudioCodecSupported, 
+  buildEmbyHlsStreamUrl, 
+  buildEmbyStreamUrl,
+  reportEmbyPlaybackStart, 
+  reportEmbyPlaybackProgress, 
+  reportEmbyPlaybackStopped 
+} from '../api/emby';
 import { 
   Play, 
   Pause, 
@@ -23,6 +31,7 @@ import {
 interface VideoPlayerProps {
   movie: Movie | null;
   initialTime?: number;
+  settings?: ServerSettings;
   onClose: () => void;
   onProgressUpdate?: (movieId: string, positionSeconds: number, durationSeconds: number) => void;
 }
@@ -88,10 +97,12 @@ function parseSubtitleText(raw: string): SubtitleCue[] {
   return cues;
 }
 
-export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: VideoPlayerProps) {
+export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressUpdate }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const playSessionId = useRef('jemby-' + Math.random().toString(36).substring(2, 9) + '-' + Date.now()).current;
 
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
@@ -187,67 +198,138 @@ export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: V
   // Active stream URL and audio transcoding state
   const [activeVideoUrl, setActiveVideoUrl] = useState<string>(movie?.videoUrl || '');
   const [isAudioTranscoding, setIsAudioTranscoding] = useState(() => {
-    return (movie?.videoUrl || '').includes('AudioCodec=aac');
+    return (movie?.videoUrl || '').includes('AudioCodec=aac') || (movie?.videoUrl || '').includes('.m3u8');
   });
 
   useEffect(() => {
     if (movie?.videoUrl) {
       setActiveVideoUrl(movie.videoUrl);
-      setIsAudioTranscoding(movie.videoUrl.includes('AudioCodec=aac'));
+      setIsAudioTranscoding(movie.videoUrl.includes('AudioCodec=aac') || movie.videoUrl.includes('.m3u8'));
     }
   }, [movie?.videoUrl]);
 
-  // Unified audio stream switcher with stereo downmixing & mediaSourceId
+  // Report playback start and stopped to Emby server for active dashboard display
+  useEffect(() => {
+    if (!settings?.apiKey || !movie) return;
+    const mediaSourceId = movie.mediaSourceId || movie.id;
+    const primaryAudio = audioTracks[selectedAudio];
+    const subTrack = selectedSub !== null ? subtitleTracks[selectedSub] : undefined;
+
+    reportEmbyPlaybackStart(settings, movie.id, mediaSourceId, playSessionId, {
+      audioStreamIndex: primaryAudio?.index,
+      subtitleStreamIndex: subTrack?.index,
+      isTranscoding: isAudioTranscoding
+    });
+
+    return () => {
+      const cur = videoRef.current?.currentTime || 0;
+      reportEmbyPlaybackStopped(settings, movie.id, mediaSourceId, playSessionId, cur);
+    };
+  }, [settings, movie]);
+
+  // Load stream via HLS.js if .m3u8, or native HTML5 video otherwise
+  useEffect(() => {
+    if (!videoRef.current || !activeVideoUrl) return;
+
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    if (activeVideoUrl.includes('.m3u8')) {
+      if (Hls.isSupported()) {
+        const startPos = initialTime ?? movie?.playbackPositionSeconds ?? 0;
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: false,
+          startPosition: startPos > 0 ? startPos : -1
+        });
+
+        hls.loadSource(activeVideoUrl);
+        hls.attachMedia(videoRef.current);
+        hlsRef.current = hls;
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (videoRef.current) {
+            videoRef.current.play().catch(() => {});
+          }
+        });
+
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (data.fatal) {
+            console.warn('[HLS] Fatal error, attempting recovery:', data.type);
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                hls.recoverMediaError();
+                break;
+              default:
+                hls.destroy();
+                break;
+            }
+          }
+        });
+      } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+        // Native Apple Safari HLS
+        videoRef.current.src = activeVideoUrl;
+      }
+    } else {
+      videoRef.current.src = activeVideoUrl;
+    }
+
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, [activeVideoUrl]);
+
+  // Unified audio stream switcher with HLS seeking support & mediaSourceId
   const applyAudioSettings = (trackIndex: number, forceTranscode?: boolean) => {
     const track = audioTracks[trackIndex];
-    if (!track || !movie?.videoUrl || !videoRef.current) return;
+    if (!track || !movie || !videoRef.current) return;
 
     const currentPos = videoRef.current.currentTime;
     const shouldTranscode = forceTranscode !== undefined 
       ? forceTranscode 
       : (track.codec ? !isAudioCodecSupported(track.codec) : true);
 
-    try {
-      const url = new URL(movie.videoUrl, window.location.href);
-      const mediaSourceId = movie.mediaSourceId || movie.id;
+    const mediaSourceId = movie.mediaSourceId || movie.id;
 
-      url.searchParams.set('MediaSourceId', mediaSourceId);
-      url.searchParams.set('DeviceId', 'jemby-web-player');
+    if (shouldTranscode && settings?.url && settings?.apiKey) {
+      // Use HLS for smooth seeking & audio transcode
+      const hlsUrl = buildEmbyHlsStreamUrl(settings.url, movie.id, settings.apiKey, {
+        mediaSourceId,
+        audioStreamIndex: track.index,
+        channels: 2,
+        playSessionId
+      });
+      setActiveVideoUrl(hlsUrl);
+      setIsAudioTranscoding(true);
+      showToast(`Audio: ${track.lang} (${track.format}) • AAC Stereo (HLS)`);
+    } else if (settings?.url && settings?.apiKey) {
+      // Direct stream MP4
+      const directUrl = buildEmbyStreamUrl(settings.url, movie.id, settings.apiKey, {
+        mediaSourceId,
+        audioStreamIndex: track.index,
+        forceTranscodeAudio: false
+      });
+      setActiveVideoUrl(directUrl);
+      setIsAudioTranscoding(false);
+      showToast(`Audio: ${track.lang} (${track.format}) • Direct Stream`);
+    }
 
-      if (shouldTranscode) {
-        url.searchParams.set('VideoCodec', 'copy');
-        url.searchParams.set('AudioCodec', 'aac');
-        url.searchParams.set('AudioBitRate', '384000');
-        url.searchParams.set('TranscodingMaxAudioChannels', '2'); // Stereo downmix guarantees clear dialogue on all speakers!
-        url.searchParams.set('EnableAudioVbrEncoding', 'false');
-        url.searchParams.delete('Static');
-        setIsAudioTranscoding(true);
-      } else {
-        url.searchParams.set('Static', 'true');
-        url.searchParams.delete('VideoCodec');
-        url.searchParams.delete('AudioCodec');
-        url.searchParams.delete('AudioBitRate');
-        url.searchParams.delete('TranscodingMaxAudioChannels');
-        url.searchParams.delete('EnableAudioVbrEncoding');
-        setIsAudioTranscoding(false);
-      }
-
-      if (track.index !== undefined) {
-        url.searchParams.set('AudioStreamIndex', track.index.toString());
-      }
-
-      const newUrl = url.toString();
-      setActiveVideoUrl(newUrl);
-
-      setTimeout(() => {
-        if (videoRef.current) {
+    setTimeout(() => {
+      if (videoRef.current && currentPos > 0) {
+        try {
           videoRef.current.currentTime = currentPos;
           videoRef.current.play().catch(() => {});
-        }
-      }, 50);
-
-      showToast(`Audio: ${track.lang} (${track.format}) ${shouldTranscode ? '• AAC Stereo' : '• Direct'}`);
-    } catch (e) {}
+        } catch (e) {}
+      }
+    }, 150);
   };
 
   const switchAudioTrack = (index: number) => {
@@ -290,8 +372,27 @@ export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: V
     let isMounted = true;
 
     async function loadCues() {
-      // If track has an Emby server WebVTT stream URL, fetch it
       if (track.url) {
+        // 1. Try our server proxy first to bypass any browser CORS restrictions
+        const proxyUrl = `/api/subtitles?url=${encodeURIComponent(track.url)}`;
+        try {
+          const res = await fetch(proxyUrl);
+          if (res.ok) {
+            const text = await res.text();
+            if (isMounted) {
+              const parsed = parseSubtitleText(text);
+              if (parsed.length > 0) {
+                setSubCues(parsed);
+                showToast(`Subtitles: ${track.label} (${parsed.length} cues)`);
+                return;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("[Subtitles] Proxy fetch failed, attempting direct:", err);
+        }
+
+        // 2. Direct fetch fallback
         try {
           const res = await fetch(track.url, {
             headers: { 'Accept': 'text/vtt, text/plain, */*' }
@@ -300,18 +401,26 @@ export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: V
             const text = await res.text();
             if (isMounted) {
               const parsed = parseSubtitleText(text);
-              setSubCues(parsed);
-              return;
+              if (parsed.length > 0) {
+                setSubCues(parsed);
+                showToast(`Subtitles: ${track.label} (${parsed.length} cues)`);
+                return;
+              }
             }
           }
         } catch (err) {
-          console.warn("Could not fetch remote VTT track:", err);
+          console.warn("[Subtitles] Direct fetch failed:", err);
         }
       }
 
       if (isMounted) {
         setSubCues([]);
         setActiveSubtitleText('');
+        if (track.isText === false) {
+          showToast(`Note: "${track.label}" is image-based (PGS/Bitmap). Text subtitles (SRT/ASS) are recommended.`);
+        } else {
+          showToast(`No text subtitle cues found for "${track.label}".`);
+        }
       }
     }
 
@@ -524,16 +633,23 @@ export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: V
       {/* Video Element */}
       <video 
         ref={videoRef}
-        src={activeVideoUrl} 
         autoPlay 
         playsInline
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onError={handleVideoError}
-        onPlay={() => setIsPlaying(true)}
+        onPlay={() => {
+          setIsPlaying(true);
+          if (settings && movie && videoRef.current) {
+            reportEmbyPlaybackProgress(settings, movie.id, movie.mediaSourceId || movie.id, playSessionId, videoRef.current.currentTime, false);
+          }
+        }}
         onPause={() => {
           setIsPlaying(false);
           reportCurrentProgress();
+          if (settings && movie && videoRef.current) {
+            reportEmbyPlaybackProgress(settings, movie.id, movie.mediaSourceId || movie.id, playSessionId, videoRef.current.currentTime, true);
+          }
         }}
         className="w-full h-full object-contain"
         crossOrigin="anonymous"
