@@ -1,4 +1,77 @@
-import { Movie, ServerSettings, SubtitleTrack } from '../types';
+import { Movie, ServerSettings, SubtitleTrack, AudioTrackInfo } from '../types';
+
+/**
+ * Detects if an audio codec can be decoded directly in a standard web browser.
+ * Web browsers natively decode ONLY: AAC, MP3, Opus, Vorbis, FLAC.
+ * AC3 (Dolby Digital), EAC3 (Dolby Digital Plus), TrueHD, and all DTS variants (DTS, DTS-HD MA)
+ * CANNOT be decoded natively by browsers and will play in complete silence unless transcoded to AAC!
+ */
+export function isAudioCodecSupported(codec?: string): boolean {
+  if (!codec) return false;
+  const c = codec.toLowerCase().trim();
+
+  // ONLY these codecs are universally decoded across browsers without proprietary decoders:
+  if (c === 'aac' || c === 'mp3' || c === 'opus' || c === 'vorbis' || c === 'flac' || c === 'wav' || c === 'm4a') {
+    return true;
+  }
+
+  // AC3, EAC3, DTS, DCA, TRUEHD, MLP, WMA all require AAC audio transcoding for web playback
+  return false;
+}
+
+/**
+ * Builds an optimal Emby / Jellyfin video stream URL.
+ * Automatically transcodes unsupported audio codecs (AC3, EAC3, DTS, TrueHD) to AAC,
+ * while using VideoCodec=copy (Direct Stream Video - original 4K/1080p quality at 0% video CPU load).
+ */
+export function buildEmbyStreamUrl(
+  baseUrl: string,
+  itemId: string,
+  apiKey: string,
+  options?: {
+    mediaSourceId?: string;
+    audioStreamIndex?: number;
+    forceTranscodeAudio?: boolean;
+    audioCodec?: string;
+    channels?: number;
+  }
+): string {
+  const cleanBase = baseUrl.replace(/\/$/, '');
+  const mediaSourceId = options?.mediaSourceId || itemId;
+
+  // Determine if audio transcoding to AAC is required
+  const needsAudioTranscode = options?.forceTranscodeAudio !== undefined
+    ? options.forceTranscodeAudio
+    : (options?.audioCodec ? !isAudioCodecSupported(options.audioCodec) : true);
+
+  if (needsAudioTranscode) {
+    const params = new URLSearchParams({
+      MediaSourceId: mediaSourceId,
+      VideoCodec: 'copy', // Direct stream video copy - 100% picture quality & 0% video transcoding CPU
+      AudioCodec: 'aac',
+      AudioBitRate: '384000',
+      TranscodingMaxAudioChannels: (options?.channels || 2).toString(), // 2 channels stereo downmix guarantees dialogue in all browsers!
+      EnableAudioVbrEncoding: 'false',
+      DeviceId: 'jemby-web-player',
+      api_key: apiKey
+    });
+    if (options?.audioStreamIndex !== undefined) {
+      params.append('AudioStreamIndex', options.audioStreamIndex.toString());
+    }
+    return `${cleanBase}/Videos/${itemId}/stream.mp4?${params.toString()}`;
+  }
+
+  // Direct play (ONLY for native AAC/MP3 files)
+  const params = new URLSearchParams({
+    Static: 'true',
+    MediaSourceId: mediaSourceId,
+    api_key: apiKey
+  });
+  if (options?.audioStreamIndex !== undefined) {
+    params.append('AudioStreamIndex', options.audioStreamIndex.toString());
+  }
+  return `${cleanBase}/Videos/${itemId}/stream.mp4?${params.toString()}`;
+}
 
 /**
  * Tests connection to an Emby or Jellyfin server.
@@ -58,9 +131,6 @@ export function mapEmbyItemToMovie(item: any, baseUrl: string, settings: ServerS
     ? `${baseUrl}/Items/${item.Id}/Images/Backdrop?tag=${item.BackdropImageTags[0]}&quality=90&maxWidth=1920` 
     : null;
 
-  // Direct video stream URL from Emby (Static=true for direct file stream or standard container)
-  const videoUrl = `${baseUrl}/Videos/${item.Id}/stream.mp4?Static=true&api_key=${encodeURIComponent(settings.apiKey)}`;
-
   // Parse Director & Actors from People list
   const director = item.People?.filter((p: any) => p.Type === 'Director').map((p: any) => p.Name).join(', ');
   const cast = item.People?.filter((p: any) => p.Type === 'Actor').slice(0, 6).map((p: any) => p.Name);
@@ -97,8 +167,8 @@ export function mapEmbyItemToMovie(item: any, baseUrl: string, settings: ServerS
     }
   }
 
-  // Audio track formats
-  const audioTracks = audioStreams.slice(0, 4).map((a: any) => {
+  // Audio track formats with codec & index details
+  const audioTracks: AudioTrackInfo[] = audioStreams.slice(0, 6).map((a: any) => {
     const lang = (a.Language || 'ENG').toUpperCase();
     let format = a.Codec ? a.Codec.toUpperCase() : 'Stereo';
     if (format === 'AC3') format = 'Dolby 5.1';
@@ -107,7 +177,27 @@ export function mapEmbyItemToMovie(item: any, baseUrl: string, settings: ServerS
     if (format.includes('DTS')) format = 'DTS:X';
     if (a.Channels === 6) format += ' 5.1';
     if (a.Channels === 8) format += ' 7.1';
-    return { lang, format };
+    return { 
+      lang, 
+      format, 
+      codec: (a.Codec || '').toLowerCase(), 
+      index: a.Index, 
+      channels: a.Channels,
+      isDefault: !!a.IsDefault
+    };
+  });
+
+  // Determine primary audio track
+  const primaryAudio = audioTracks.find(a => a.isDefault) || audioTracks[0];
+  const mediaSourceId = item.MediaSources?.[0]?.Id || item.Id;
+
+  // Intelligently build video stream URL:
+  // Automatically transcode audio to AAC if AC3, EAC3, DTS, TrueHD (VideoCodec=copy, AudioCodec=aac)
+  const videoUrl = buildEmbyStreamUrl(baseUrl, item.Id, settings.apiKey, {
+    mediaSourceId,
+    audioStreamIndex: primaryAudio?.index,
+    audioCodec: primaryAudio?.codec,
+    channels: 2 // Stereo downmix guarantees speech and sound in all web browsers!
   });
 
   // Extract complete SubtitleTrack objects with direct WebVTT stream URLs
@@ -152,6 +242,7 @@ export function mapEmbyItemToMovie(item: any, baseUrl: string, settings: ServerS
 
   return {
     id: item.Id,
+    mediaSourceId,
     title: item.Name,
     year: item.ProductionYear,
     overview: item.Overview,

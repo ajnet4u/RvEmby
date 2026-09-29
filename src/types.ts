@@ -9,6 +9,15 @@ export interface SubtitleTrack {
   isDefault?: boolean;
 }
 
+export interface AudioTrackInfo {
+  lang: string;
+  format: string;
+  codec?: string;
+  index?: number;
+  channels?: number;
+  isDefault?: boolean;
+}
+
 export interface Movie {
   id: string;
   title: string;
@@ -19,13 +28,14 @@ export interface Movie {
   poster?: string | null;
   backdrop?: string | null;
   videoUrl?: string; // Direct stream URL if available
+  mediaSourceId?: string;
   rating?: number;
   contentRating?: string;
   director?: string;
   cast?: string[];
   resolutionBadge?: string;
   hdrBadge?: string;
-  audioTracks?: { lang: string; format: string }[];
+  audioTracks?: AudioTrackInfo[];
   subtitles?: string[];
   subtitleTracks?: SubtitleTrack[];
   playbackPositionSeconds?: number;

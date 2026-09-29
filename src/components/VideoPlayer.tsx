@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Movie, SubtitleTrack } from '../types';
+import { Movie, SubtitleTrack, AudioTrackInfo } from '../types';
+import { isAudioCodecSupported } from '../api/emby';
 import { 
   Play, 
   Pause, 
@@ -87,44 +88,6 @@ function parseSubtitleText(raw: string): SubtitleCue[] {
   return cues;
 }
 
-/**
- * Fallback timed dialogue cues for demo/sample mode playback.
- */
-function getDemoCues(lang: string, durationSeconds: number): SubtitleCue[] {
-  const l = (lang || '').toLowerCase();
-  const baseCues: { offset: number; len: number; en: string; fr: string; es: string }[] = [
-    { offset: 1, len: 3.5, en: "[Atmospheric soundtrack begins]", fr: "[La bande sonore atmosphérique commence]", es: "[Comienza la banda sonora atmosférica]" },
-    { offset: 5, len: 4, en: "All systems online. Coordinates confirmed.", fr: "Tous les systèmes sont en ligne. Coordonnées confirmées.", es: "Todos los sistemas en línea. Coordenadas confirmadas." },
-    { offset: 10, len: 4.5, en: "Approaching outer orbit. Prepare for descent.", fr: "Approche de l'orbite extérieure. Préparez-vous à la descente.", es: "Aproximándose a la órbita exterior. Prepárense para el descenso." },
-    { offset: 16, len: 4, en: "Thrusters engaged at sixty percent power.", fr: "Propulseurs engagés à soixante pour cent.", es: "Propulsores activados al sesenta por ciento." },
-    { offset: 21, len: 4.5, en: "Telemetry indicates clear trajectory ahead.", fr: "La télémétrie indique une trajectoire dégagée.", es: "La telemetría indica una trayectoria despejada." },
-    { offset: 27, len: 4, en: "Visual contact established with the landing zone.", fr: "Contact visuel établi avec la zone d'atterrissage.", es: "Contacto visual establecido con la zona de aterrizaje." },
-    { offset: 32, len: 5, en: "Look at the horizon. We finally made it.", fr: "Regarde l'horizon. Nous y sommes enfin arrivés.", es: "Mira el horizonte. Finalmente lo logramos." },
-    { offset: 38, len: 4.5, en: "Transmission received from command headquarters.", fr: "Transmission reçue du quartier général de commandement.", es: "Transmisión recibida del cuartel general de mando." },
-    { offset: 44, len: 5, en: "Mission status: complete. Welcome home.", fr: "Statut de la mission : terminé. Bienvenue à la maison.", es: "Estado de la misión: completada. Bienvenidos a casa." }
-  ];
-
-  const cues: SubtitleCue[] = [];
-  const maxTime = Math.max(durationSeconds || 300, 180);
-
-  // Loop patterns throughout video duration
-  for (let loop = 0; loop < Math.ceil(maxTime / 50); loop++) {
-    const loopOffset = loop * 50;
-    for (const b of baseCues) {
-      const start = loopOffset + b.offset;
-      const end = start + b.len;
-      if (start < maxTime) {
-        let text = b.en;
-        if (l.includes('fr') || l.includes('french')) text = b.fr;
-        if (l.includes('es') || l.includes('span') || l.includes('castellano')) text = b.es;
-        cues.push({ start, end: Math.min(end, maxTime), text });
-      }
-    }
-  }
-
-  return cues;
-}
-
 export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -146,8 +109,18 @@ export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: V
   const [showSubMenu, setShowSubMenu] = useState(false);
   const [selectedAudio, setSelectedAudio] = useState(0);
 
+  // Subtitle track list: strictly from Emby (NO dummy fallback)
+  const subtitleTracks: SubtitleTrack[] = movie?.subtitleTracks || [];
+
   // Active Subtitle State (null = Off; number >= 0 = subtitle index)
-  const [selectedSub, setSelectedSub] = useState<number | null>(0); // Default to first available subtitle track
+  // Subtitles default to OFF unless a real subtitle track has isDefault: true
+  const [selectedSub, setSelectedSub] = useState<number | null>(() => {
+    if (movie?.subtitleTracks && movie.subtitleTracks.length > 0) {
+      const defIdx = movie.subtitleTracks.findIndex(t => t.isDefault);
+      return defIdx !== -1 ? defIdx : null;
+    }
+    return null;
+  });
   const [subCues, setSubCues] = useState<SubtitleCue[]>([]);
   const [activeSubtitleText, setActiveSubtitleText] = useState<string>('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -203,22 +176,101 @@ export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: V
   }, [resetControlsTimer]);
 
   // Audio track list
-  const audioTracks = movie?.audioTracks && movie.audioTracks.length > 0 
+  const audioTracks: AudioTrackInfo[] = movie?.audioTracks && movie.audioTracks.length > 0 
     ? movie.audioTracks 
     : [
-        { lang: 'English', format: 'Dolby Digital 5.1' },
-        { lang: 'French (VFF)', format: 'Dolby Atmos' },
-        { lang: 'English', format: 'Stereo AAC' }
+        { lang: 'English', format: 'Dolby Digital 5.1', codec: 'ac3' },
+        { lang: 'French (VFF)', format: 'Dolby Atmos', codec: 'eac3' },
+        { lang: 'English', format: 'Stereo AAC', codec: 'aac' }
       ];
 
-  // Subtitle track list
-  const subtitleTracks: SubtitleTrack[] = movie?.subtitleTracks && movie.subtitleTracks.length > 0
-    ? movie.subtitleTracks
-    : [
-        { id: 'sub-en', lang: 'English', code: 'en', label: 'English [CC]', isDefault: true },
-        { id: 'sub-fr', lang: 'French', code: 'fr', label: 'French (Français)' },
-        { id: 'sub-es', lang: 'Spanish', code: 'es', label: 'Spanish (Español)' }
-      ];
+  // Active stream URL and audio transcoding state
+  const [activeVideoUrl, setActiveVideoUrl] = useState<string>(movie?.videoUrl || '');
+  const [isAudioTranscoding, setIsAudioTranscoding] = useState(() => {
+    return (movie?.videoUrl || '').includes('AudioCodec=aac');
+  });
+
+  useEffect(() => {
+    if (movie?.videoUrl) {
+      setActiveVideoUrl(movie.videoUrl);
+      setIsAudioTranscoding(movie.videoUrl.includes('AudioCodec=aac'));
+    }
+  }, [movie?.videoUrl]);
+
+  // Unified audio stream switcher with stereo downmixing & mediaSourceId
+  const applyAudioSettings = (trackIndex: number, forceTranscode?: boolean) => {
+    const track = audioTracks[trackIndex];
+    if (!track || !movie?.videoUrl || !videoRef.current) return;
+
+    const currentPos = videoRef.current.currentTime;
+    const shouldTranscode = forceTranscode !== undefined 
+      ? forceTranscode 
+      : (track.codec ? !isAudioCodecSupported(track.codec) : true);
+
+    try {
+      const url = new URL(movie.videoUrl, window.location.href);
+      const mediaSourceId = movie.mediaSourceId || movie.id;
+
+      url.searchParams.set('MediaSourceId', mediaSourceId);
+      url.searchParams.set('DeviceId', 'jemby-web-player');
+
+      if (shouldTranscode) {
+        url.searchParams.set('VideoCodec', 'copy');
+        url.searchParams.set('AudioCodec', 'aac');
+        url.searchParams.set('AudioBitRate', '384000');
+        url.searchParams.set('TranscodingMaxAudioChannels', '2'); // Stereo downmix guarantees clear dialogue on all speakers!
+        url.searchParams.set('EnableAudioVbrEncoding', 'false');
+        url.searchParams.delete('Static');
+        setIsAudioTranscoding(true);
+      } else {
+        url.searchParams.set('Static', 'true');
+        url.searchParams.delete('VideoCodec');
+        url.searchParams.delete('AudioCodec');
+        url.searchParams.delete('AudioBitRate');
+        url.searchParams.delete('TranscodingMaxAudioChannels');
+        url.searchParams.delete('EnableAudioVbrEncoding');
+        setIsAudioTranscoding(false);
+      }
+
+      if (track.index !== undefined) {
+        url.searchParams.set('AudioStreamIndex', track.index.toString());
+      }
+
+      const newUrl = url.toString();
+      setActiveVideoUrl(newUrl);
+
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.currentTime = currentPos;
+          videoRef.current.play().catch(() => {});
+        }
+      }, 50);
+
+      showToast(`Audio: ${track.lang} (${track.format}) ${shouldTranscode ? '• AAC Stereo' : '• Direct'}`);
+    } catch (e) {}
+  };
+
+  const switchAudioTrack = (index: number) => {
+    setSelectedAudio(index);
+    setShowAudioMenu(false);
+    applyAudioSettings(index);
+  };
+
+  // Toggle Force Audio Transcoding (useful if browser plays video but has no sound)
+  const toggleAudioTranscode = () => {
+    const newTranscodeState = !isAudioTranscoding;
+    applyAudioSettings(selectedAudio, newTranscodeState);
+    showToast(newTranscodeState ? 'Forced AAC Audio Transcode ON' : 'Direct Play Audio Restored');
+  };
+
+  // Reactive fallback on video decode error
+  const handleVideoError = () => {
+    if (!isAudioTranscoding && movie?.videoUrl && videoRef.current) {
+      console.warn('[JEmby Player] Media decode error encountered. Activating audio transcoding fallback...');
+      applyAudioSettings(selectedAudio, true);
+      showToast('Incompatible audio track. Switched to AAC transcoding.');
+    }
+  };
 
   // Load Subtitle Cues whenever selected subtitle changes
   useEffect(() => {
@@ -229,12 +281,16 @@ export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: V
     }
 
     const track = subtitleTracks[selectedSub];
-    if (!track) return;
+    if (!track) {
+      setSubCues([]);
+      setActiveSubtitleText('');
+      return;
+    }
 
     let isMounted = true;
 
     async function loadCues() {
-      // 1. If track has an Emby server WebVTT stream URL, fetch it
+      // If track has an Emby server WebVTT stream URL, fetch it
       if (track.url) {
         try {
           const res = await fetch(track.url, {
@@ -244,21 +300,18 @@ export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: V
             const text = await res.text();
             if (isMounted) {
               const parsed = parseSubtitleText(text);
-              if (parsed.length > 0) {
-                setSubCues(parsed);
-                return;
-              }
+              setSubCues(parsed);
+              return;
             }
           }
         } catch (err) {
-          console.warn("Could not fetch remote VTT track, falling back to dialogue cues:", err);
+          console.warn("Could not fetch remote VTT track:", err);
         }
       }
 
-      // 2. Fallback to generated high-quality timed dialogue cues
       if (isMounted) {
-        const fallback = getDemoCues(track.code || track.lang, duration);
-        setSubCues(fallback);
+        setSubCues([]);
+        setActiveSubtitleText('');
       }
     }
 
@@ -267,7 +320,7 @@ export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: V
     return () => {
       isMounted = false;
     };
-  }, [selectedSub, subtitleTracks, duration]);
+  }, [selectedSub, subtitleTracks]);
 
   // Video event handlers
   const handleTimeUpdate = () => {
@@ -471,11 +524,12 @@ export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: V
       {/* Video Element */}
       <video 
         ref={videoRef}
-        src={movie.videoUrl} 
+        src={activeVideoUrl} 
         autoPlay 
         playsInline
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
+        onError={handleVideoError}
         onPlay={() => setIsPlaying(true)}
         onPause={() => {
           setIsPlaying(false);
@@ -542,8 +596,13 @@ export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: V
               <span>•</span>
               <span>{movie.genres?.slice(0, 2).join(' / ') || 'Feature Film'}</span>
               <span>•</span>
-              <span className="text-cyan-300 font-mono font-semibold">
-                {audioTracks[selectedAudio]?.format || 'Dolby Audio 5.1'}
+              <span className="text-cyan-300 font-mono font-semibold flex items-center gap-2">
+                <span>{audioTracks[selectedAudio]?.format || 'Dolby Audio 5.1'}</span>
+                {isAudioTranscoding && (
+                  <span className="px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-400/50 text-[9px] font-bold text-cyan-300 uppercase tracking-widest font-mono">
+                    AAC Transcode
+                  </span>
+                )}
               </span>
             </div>
           </div>
@@ -723,33 +782,62 @@ export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: V
 
                 {/* Audio Tracks Dropdown */}
                 {showAudioMenu && (
-                  <div className="absolute right-0 bottom-full mb-3 w-56 rounded-2xl bg-zinc-900/95 border border-cyan-500/50 shadow-[0_10px_35px_rgba(0,0,0,0.9)] p-2 z-50 backdrop-blur-xl">
+                  <div className="absolute right-0 bottom-full mb-3 w-64 rounded-2xl bg-zinc-900/95 border border-cyan-500/50 shadow-[0_10px_35px_rgba(0,0,0,0.9)] p-2 z-50 backdrop-blur-xl">
                     <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-400 border-b border-zinc-800 mb-1 flex items-center justify-between">
                       <span>Audio Streams</span>
-                      <span className="font-mono text-cyan-400/70 text-[9px]">JEmby</span>
+                      <span className="font-mono text-cyan-400/70 text-[9px]">JEmby Cinema</span>
                     </div>
-                    <div className="space-y-0.5">
-                      {audioTracks.map((track, i) => (
-                        <button
-                          key={i}
-                          onClick={() => {
-                            setSelectedAudio(i);
-                            setShowAudioMenu(false);
-                            showToast(`Audio: ${track.lang} (${track.format})`);
-                          }}
-                          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all cursor-pointer ${
-                            selectedAudio === i 
-                              ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 font-bold' 
-                              : 'text-zinc-300 hover:text-white hover:bg-white/10'
-                          }`}
-                        >
-                          <div>
-                            <div>{track.lang}</div>
-                            <div className="text-[10px] text-zinc-400">{track.format}</div>
-                          </div>
-                          {selectedAudio === i && <Check size={14} className="text-cyan-400" />}
-                        </button>
-                      ))}
+                    <div className="space-y-0.5 max-h-56 overflow-y-auto pr-1">
+                      {audioTracks.map((track, i) => {
+                        const isDirectCompatible = track.codec ? isAudioCodecSupported(track.codec) : true;
+                        return (
+                          <button
+                            key={i}
+                            onClick={() => switchAudioTrack(i)}
+                            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all cursor-pointer ${
+                              selectedAudio === i 
+                                ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 font-bold' 
+                                : 'text-zinc-300 hover:text-white hover:bg-white/10'
+                            }`}
+                          >
+                            <div className="pr-2">
+                              <div className="font-semibold">{track.lang}</div>
+                              <div className="text-[10px] text-zinc-400">{track.format}</div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {isDirectCompatible && !isAudioTranscoding ? (
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-950/70 border border-emerald-500/30 text-[8px] font-mono text-emerald-400 uppercase">
+                                  DIRECT
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded bg-cyan-950/70 border border-cyan-500/30 text-[8px] font-mono text-cyan-300 uppercase">
+                                  AAC
+                                </span>
+                              )}
+                              {selectedAudio === i && <Check size={14} className="text-cyan-400" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Quick Transcode Toggle: For troubleshooting audio silence */}
+                    <div className="mt-2 pt-2 border-t border-zinc-800">
+                      <button
+                        onClick={toggleAudioTranscode}
+                        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-zinc-800/80 hover:bg-zinc-700/80 text-[10px] text-zinc-300 hover:text-white transition-all cursor-pointer"
+                        title="If you experience silent audio, toggle forced AAC transcoding"
+                      >
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <Sparkles size={11} className={isAudioTranscoding ? "text-cyan-400" : "text-zinc-500"} />
+                          <span>Force AAC Transcoding</span>
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded font-mono font-bold text-[9px] ${
+                          isAudioTranscoding ? 'bg-cyan-500 text-black' : 'bg-zinc-700 text-zinc-400'
+                        }`}>
+                          {isAudioTranscoding ? 'ON' : 'OFF'}
+                        </span>
+                      </button>
                     </div>
                   </div>
                 )}
@@ -801,27 +889,31 @@ export function VideoPlayer({ movie, initialTime, onClose, onProgressUpdate }: V
                       </button>
 
                       {/* Available Subtitle Tracks */}
-                      {subtitleTracks.map((track, i) => {
-                        const isSubActive = selectedSub === i;
-                        return (
-                          <button
-                            key={track.id || i}
-                            onClick={() => {
-                              setSelectedSub(i);
-                              setShowSubMenu(false);
-                              showToast(`Subtitles: ${track.label}`);
-                            }}
-                            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all cursor-pointer ${
-                              isSubActive 
-                                ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 font-bold' 
-                                : 'text-zinc-300 hover:text-white hover:bg-white/10'
-                            }`}
-                          >
-                            <span className="truncate pr-2">{track.label}</span>
-                            {isSubActive && <Check size={14} className="text-cyan-400 shrink-0" />}
-                          </button>
-                        );
-                      })}
+                      {subtitleTracks.length === 0 ? (
+                        <div className="px-3 py-2 text-[11px] text-zinc-500 italic">No subtitles available</div>
+                      ) : (
+                        subtitleTracks.map((track, i) => {
+                          const isSubActive = selectedSub === i;
+                          return (
+                            <button
+                              key={track.id || i}
+                              onClick={() => {
+                                setSelectedSub(i);
+                                setShowSubMenu(false);
+                                showToast(`Subtitles: ${track.label}`);
+                              }}
+                              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all cursor-pointer ${
+                                isSubActive 
+                                  ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 font-bold' 
+                                  : 'text-zinc-300 hover:text-white hover:bg-white/10'
+                              }`}
+                            >
+                              <span className="truncate pr-2">{track.label}</span>
+                              {isSubActive && <Check size={14} className="text-cyan-400 shrink-0" />}
+                            </button>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 )}
