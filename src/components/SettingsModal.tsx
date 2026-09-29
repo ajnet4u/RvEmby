@@ -158,7 +158,7 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: Sett
               <li>Log in to your Emby server (e.g. <span className="text-zinc-300 font-mono">192.168.10.146:8096</span>)</li>
               <li>Click the gear icon (Settings / Server Dashboard)</li>
               <li>Under <strong className="text-zinc-300">Advanced</strong> on the left, click <strong className="text-zinc-300">API Keys</strong></li>
-              <li>Click <strong className="text-zinc-300">New API Key</strong>, name it "R_volution", and copy the token</li>
+              <li>Click <strong className="text-zinc-300">New API Key</strong>, name it "JEmby", and copy the token</li>
             </ol>
             <div className="pt-1.5 border-t border-zinc-800/60 text-[11px] text-zinc-500">
               Works with both <strong>Emby</strong> and <strong>Jellyfin</strong> servers on CasaOS, TrueNAS, Unraid, or Windows/Linux.

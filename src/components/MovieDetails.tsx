@@ -1,6 +1,7 @@
 import { Movie } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Play, ArrowLeft, Star, EyeOff } from 'lucide-react';
+import { useEffect } from 'react';
 
 interface MovieDetailsProps {
   movie: Movie | null;
@@ -16,6 +17,25 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
     const m = minutes % 60;
     return `${h}:${m.toString().padStart(2, '0')}`;
   };
+
+  // Keyboard navigation for TV remotes
+  useEffect(() => {
+    if (!movie) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Backspace') {
+        e.preventDefault();
+        onClose();
+      } else if (e.key === 'Enter') {
+        // If user presses Enter without focusing back button, default to Play
+        if (document.activeElement?.tagName !== 'BUTTON') {
+          e.preventDefault();
+          onPlay();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [movie, onClose, onPlay]);
 
   return (
     <AnimatePresence>
@@ -45,15 +65,15 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
           {/* Content */}
           <div className="relative z-10 w-full h-full flex flex-col p-8 md:p-16 overflow-y-auto custom-scrollbar">
             {/* Top Bar */}
-            <div className="mb-8 md:mb-16">
+            <div className="mb-6 md:mb-10">
               <button 
                 onClick={onClose}
-                className="flex items-center gap-2 text-white/70 hover:text-white transition-colors group"
+                className="flex items-center gap-2 text-white/70 hover:text-white transition-colors group focus:outline-none focus:ring-2 focus:ring-cyan-400 rounded-full px-2 py-1"
               >
                 <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition-colors backdrop-blur-md">
                   <ArrowLeft size={20} />
                 </div>
-                <span className="font-medium tracking-wide">Back</span>
+                <span className="font-medium tracking-wide">Back (Esc)</span>
               </button>
             </div>
 
@@ -66,7 +86,7 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                 className="shrink-0 w-64 md:w-80 lg:w-96 relative group cursor-pointer"
                 onClick={onPlay}
               >
-                <div className="aspect-[2/3] rounded-2xl overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.8)] border-2 border-white/10 transition-colors group-hover:border-white/50">
+                <div className="aspect-[2/3] rounded-2xl overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.8)] border-2 border-white/10 transition-colors group-hover:border-cyan-400">
                   {movie.poster ? (
                     <img src={movie.poster} alt={movie.title} className="w-full h-full object-cover" />
                   ) : (
@@ -74,7 +94,7 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                   )}
                   {/* Play button overlay */}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
-                    <div className="w-20 h-20 rounded-full bg-white/20 flex items-center justify-center text-white border border-white/40 shadow-[0_0_30px_rgba(255,255,255,0.3)]">
+                    <div className="w-20 h-20 rounded-full bg-cyan-600/80 flex items-center justify-center text-white border border-cyan-300 shadow-[0_0_30px_rgba(6,182,212,0.8)]">
                       <Play fill="currentColor" size={32} className="ml-2" />
                     </div>
                   </div>
@@ -86,23 +106,24 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
-                className="flex flex-col justify-center flex-1 max-w-3xl pt-4"
+                className="flex flex-col justify-center flex-1 max-w-3xl pt-2"
               >
                 {/* Title & Metadata */}
-                <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 drop-shadow-lg tracking-tight">
+                <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 drop-shadow-lg tracking-tight">
                   {movie.title}
                 </h1>
                 
-                <div className="flex flex-wrap items-center gap-4 mb-6 text-white/90 font-semibold text-lg md:text-xl">
+                <div className="flex flex-wrap items-center gap-4 mb-5 text-white/90 font-semibold text-lg md:text-xl">
                   {movie.rating && (
                     <div className="flex items-center gap-1.5">
-                      <Star className="fill-white" size={20} />
+                      <Star className="fill-amber-400 text-amber-400" size={20} />
                       <span>{movie.rating}</span>
                     </div>
                   )}
-                  <EyeOff size={20} className="text-white/80" />
                   {movie.contentRating && (
-                    <span className="bg-white/20 px-2 py-0.5 rounded text-sm font-bold border border-white/40 backdrop-blur-sm">{movie.contentRating}</span>
+                    <span className="bg-white/20 px-2 py-0.5 rounded text-sm font-bold border border-white/40 backdrop-blur-sm uppercase">
+                      {movie.contentRating}
+                    </span>
                   )}
                   {movie.year && <span>{movie.year}</span>}
                   <span>-</span>
@@ -118,9 +139,22 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                     {movie.resolutionBadge || 'UHD'}
                   </span>
                 </div>
+
+                {/* Primary Action Button Row (TV Remote optimized) */}
+                <div className="flex items-center gap-4 mb-7">
+                  <button
+                    autoFocus
+                    onClick={onPlay}
+                    className="flex items-center gap-3 px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-base shadow-[0_0_25px_rgba(6,182,212,0.6)] focus:outline-none focus:ring-4 focus:ring-cyan-300 transform focus:scale-105 transition-all"
+                  >
+                    <Play size={20} fill="currentColor" />
+                    <span>Play Movie</span>
+                    <span className="px-1.5 py-0.5 rounded bg-black/30 border border-white/20 text-[10px] font-mono ml-2">ENTER</span>
+                  </button>
+                </div>
                 
                 {/* Audio/Subtitles row */}
-                <div className="flex flex-wrap items-center gap-6 mb-10 text-white/70 text-sm font-medium">
+                <div className="flex flex-wrap items-center gap-6 mb-8 text-white/70 text-sm font-medium">
                   {movie.audioTracks && movie.audioTracks.length > 0 ? (
                     movie.audioTracks.map((audio, i) => (
                       <div key={i} className="flex items-center gap-2">
@@ -147,7 +181,7 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                 </div>
 
                 {/* Overview */}
-                <div className="mb-12">
+                <div className="mb-10">
                   <p className="text-white/90 text-base md:text-lg leading-relaxed font-light drop-shadow-md">
                     {movie.overview || 'No overview available.'}
                   </p>
@@ -172,3 +206,4 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
     </AnimatePresence>
   );
 }
+

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">JEmby</string>
+    <string name="title_activity_main">JEmby</string>
+    <string name="package_name">com.jemby.player</string>
+    <string name="custom_url_scheme">com.jemby.player</string>
+</resources>

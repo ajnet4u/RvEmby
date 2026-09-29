@@ -325,15 +325,27 @@ export function MovieGrid({
           {movies.map((movie, index) => (
             <motion.div
               key={movie.id}
+              tabIndex={0}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: Math.min(index * 0.02, 0.4), duration: 0.3 }}
-              className="group relative cursor-pointer"
+              className="group relative cursor-pointer outline-none"
               onMouseEnter={() => onHover(movie)}
               onMouseLeave={() => onHover(null)}
+              onFocus={(e) => {
+                onHover(movie);
+                e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              }}
+              onBlur={() => onHover(null)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelect(movie);
+                }
+              }}
               onClick={() => onSelect(movie)}
             >
-              <div className="aspect-[2/3] rounded-xl overflow-hidden shadow-lg transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_20px_35px_rgba(0,0,0,0.8)] group-hover:ring-4 ring-white relative border-2 border-transparent group-hover:border-white">
+              <div className="aspect-[2/3] rounded-xl overflow-hidden shadow-lg transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_20px_35px_rgba(0,0,0,0.8)] group-hover:ring-4 ring-white group-focus:ring-4 group-focus:ring-cyan-400 group-focus:border-cyan-400 group-focus:-translate-y-2 group-focus:shadow-[0_0_30px_rgba(6,182,212,0.8)] relative border-2 border-transparent group-hover:border-white">
                 {movie.poster ? (
                   <img 
                     src={movie.poster} 
@@ -353,13 +365,13 @@ export function MovieGrid({
                   </div>
                 )}
 
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity flex items-center justify-center">
                   <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/40 shadow-lg">
                     <Play size={20} fill="currentColor" className="ml-1" />
                   </div>
                 </div>
               </div>
-              <p className="mt-2 text-xs font-semibold text-white/90 truncate drop-shadow">{movie.title}</p>
+              <p className="mt-2 text-xs font-semibold text-white/90 truncate drop-shadow group-focus:text-cyan-300">{movie.title}</p>
               <p className="text-[10px] text-zinc-400">{movie.year || ''}</p>
             </motion.div>
           ))}
@@ -398,16 +410,28 @@ export function MovieGrid({
             {movies.map((movie, index) => (
               <motion.div
                 key={movie.id}
+                tabIndex={0}
                 initial={{ opacity: 0, x: 50 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: Math.min(index * 0.04, 0.4), duration: 0.3 }}
-                className="shrink-0 group relative cursor-pointer snap-start"
+                className="shrink-0 group relative cursor-pointer snap-start outline-none"
                 onMouseEnter={() => onHover(movie)}
                 onMouseLeave={() => onHover(null)}
+                onFocus={(e) => {
+                  onHover(movie);
+                  e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                }}
+                onBlur={() => onHover(null)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelect(movie);
+                  }
+                }}
                 onClick={() => onSelect(movie)}
               >
                 {/* Poster Container */}
-                <div className="w-36 md:w-48 lg:w-56 aspect-[2/3] rounded-xl overflow-hidden shadow-lg transition-all duration-300 group-hover:-translate-y-4 group-hover:shadow-[0_20px_40px_rgba(0,0,0,0.7)] group-hover:ring-4 ring-white relative border-2 border-transparent group-hover:border-white">
+                <div className="w-36 md:w-48 lg:w-56 aspect-[2/3] rounded-xl overflow-hidden shadow-lg transition-all duration-300 group-hover:-translate-y-4 group-hover:shadow-[0_20px_40px_rgba(0,0,0,0.7)] group-hover:ring-4 ring-white group-focus:ring-4 group-focus:ring-cyan-400 group-focus:border-cyan-400 group-focus:-translate-y-4 group-focus:shadow-[0_0_35px_rgba(6,182,212,0.9)] relative border-2 border-transparent group-hover:border-white">
                   {movie.poster ? (
                     <img 
                       src={movie.poster} 
@@ -430,14 +454,14 @@ export function MovieGrid({
                   )}
                   
                   {/* Play Overlay */}
-                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                    <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.2)] transform scale-75 group-hover:scale-100 transition-transform duration-300 border border-white/40">
+                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                    <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.2)] transform scale-75 group-hover:scale-100 group-focus:scale-100 transition-transform duration-300 border border-white/40">
                       <Play className="text-white ml-1" fill="currentColor" size={24} />
                     </div>
                   </div>
                 </div>
 
-                <p className="mt-2 text-xs font-semibold text-white/90 truncate w-36 md:w-48 lg:w-56 drop-shadow">
+                <p className="mt-2 text-xs font-semibold text-white/90 truncate w-36 md:w-48 lg:w-56 drop-shadow group-focus:text-cyan-300">
                   {movie.title}
                 </p>
               </motion.div>

@@ -15,7 +15,8 @@ import {
   Clock,
   Sparkles,
   ChevronRight,
-  Check
+  Check,
+  ArrowLeft
 } from 'lucide-react';
 
 interface VideoPlayerProps {
@@ -45,7 +46,7 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
   const [selectedAudio, setSelectedAudio] = useState(0);
   const [selectedSub, setSelectedSub] = useState<number | null>(null);
 
-  // Live system clock for PS4 header
+  // Live system clock for JEmby header
   const [clockString, setClockString] = useState('');
 
   useEffect(() => {
@@ -177,23 +178,36 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
     }
   };
 
-  // Keyboard controls mapped like PS4 controller and PC media player
+  // Keyboard controls mapped for remote and media playback
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       resetControlsTimer();
       switch (e.key) {
         case ' ':
         case 'Enter':
+        case 'MediaPlayPause':
+        case 'MediaPlay':
+        case 'MediaPause':
           e.preventDefault();
           togglePlay();
           break;
         case 'ArrowLeft':
+        case 'MediaRewind':
           e.preventDefault();
           seek(-10);
           break;
         case 'ArrowRight':
+        case 'MediaFastForward':
           e.preventDefault();
           seek(10);
+          break;
+        case 'MediaTrackPrevious':
+          e.preventDefault();
+          seek(-30);
+          break;
+        case 'MediaTrackNext':
+          e.preventDefault();
+          seek(30);
           break;
         case 'ArrowUp':
           e.preventDefault();
@@ -266,19 +280,19 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
         crossOrigin="anonymous"
       />
 
-      {/* PS4 HUD Overlay (Smooth Fade) */}
+      {/* JEmby HUD Overlay (Smooth Fade) */}
       <div className={`absolute inset-0 flex flex-col justify-between transition-opacity duration-300 pointer-events-none ${
         showControls ? 'opacity-100' : 'opacity-0'
       }`}>
         
-        {/* PS4 Top Bar: Ambient Dark Gradient + PlayStation Title & Badges */}
+        {/* JEmby Top Bar: Ambient Dark Gradient + Cinema Title & Badges */}
         <div className="w-full bg-gradient-to-b from-black/90 via-black/60 to-transparent pt-6 pb-12 px-10 md:px-14 flex items-start justify-between pointer-events-auto">
           {/* Left Title Info */}
           <div className="space-y-1">
             <div className="flex items-center gap-3">
-              <span className="text-[11px] font-black tracking-widest text-[#0072ce] uppercase flex items-center gap-1.5 drop-shadow">
-                <span className="w-2 h-2 rounded-full bg-[#0072ce] animate-pulse shadow-[0_0_8px_#0072ce]" />
-                PS4 Media Player
+              <span className="text-[11px] font-black tracking-widest text-cyan-400 uppercase flex items-center gap-1.5 drop-shadow">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#22d3ee]" />
+                JEmby Player
               </span>
               {movie.resolutionBadge && (
                 <span className="px-2 py-0.5 rounded text-[10px] font-black bg-white/15 border border-white/20 uppercase tracking-widest text-white/90">
@@ -307,32 +321,31 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
             </div>
           </div>
 
-          {/* Right PS4 Clock & Back Prompt */}
-          <div className="flex items-center gap-6">
-            {/* Live PS4 Clock */}
+          {/* Right Clock & Back Prompt */}
+          <div className="flex items-center gap-5">
+            {/* Live Clock */}
             <div className="flex items-center gap-2 text-white/80 font-mono text-sm tracking-widest">
-              <Clock size={16} className="text-[#0072ce]" />
+              <Clock size={16} className="text-cyan-400" />
               <span>{clockString}</span>
             </div>
 
-            {/* PS4 Circle (◯) Back Button */}
+            {/* Back Button */}
             <button 
               onClick={onClose}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold transition-all shadow-lg group backdrop-blur-md"
-              title="Close player (Esc)"
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold transition-all shadow-lg group backdrop-blur-md cursor-pointer"
+              title="Close player (Esc / Back)"
             >
-              <span className="w-5 h-5 rounded-full bg-[#e81123] text-white flex items-center justify-center text-[10px] font-black shadow-[0_0_8px_rgba(232,17,35,0.8)] border border-red-300 group-hover:scale-105 transition-transform">
-                ◯
-              </span>
+              <ArrowLeft size={14} className="group-hover:-translate-x-0.5 transition-transform" />
               <span className="tracking-wider">BACK</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/20 text-[9px] font-mono text-white/70">ESC</kbd>
             </button>
           </div>
         </div>
 
-        {/* PS4 Bottom Bar: Glowing Timeline + Controller Controls + DualShock Legend */}
+        {/* JEmby Bottom Bar: Glowing Timeline + Cinema Controls */}
         <div className="w-full bg-gradient-to-t from-black/95 via-black/80 to-transparent pt-14 pb-5 px-10 md:px-14 flex flex-col gap-4 pointer-events-auto">
           
-          {/* PS4 Blue Scrubber Timeline */}
+          {/* Cyan Scrubber Timeline */}
           <div className="flex items-center gap-4 text-xs font-mono font-semibold text-white/80">
             {/* Current Time */}
             <span className="w-16 text-right tabular-nums text-cyan-300 drop-shadow">
@@ -350,23 +363,23 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
             >
               {/* Background Track */}
               <div className="w-full h-1.5 rounded-full bg-zinc-800/90 border border-white/10 overflow-hidden relative group-hover:h-2 transition-all">
-                {/* Glowing PS4 Blue Filled Progress */}
+                {/* Glowing Cyan Filled Progress */}
                 <div 
-                  className="h-full bg-gradient-to-r from-[#003791] via-[#0072ce] to-[#2997ff] shadow-[0_0_12px_rgba(0,114,206,0.9)] relative"
+                  className="h-full bg-gradient-to-r from-cyan-600 via-cyan-400 to-blue-500 shadow-[0_0_12px_rgba(6,182,212,0.9)] relative"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
 
-              {/* PS4 Circular Scrubber Thumb */}
+              {/* Circular Scrubber Thumb */}
               <div 
-                className="absolute w-4 h-4 rounded-full bg-white border-2 border-[#0072ce] shadow-[0_0_15px_#0072ce] -translate-x-1/2 transform scale-75 group-hover:scale-110 transition-transform pointer-events-none"
+                className="absolute w-4 h-4 rounded-full bg-white border-2 border-cyan-400 shadow-[0_0_15px_#22d3ee] -translate-x-1/2 transform scale-75 group-hover:scale-110 transition-transform pointer-events-none"
                 style={{ left: `${progressPercent}%` }}
               />
 
               {/* Hover Tooltip Timestamp */}
               {isHoveringTimeline && hoverTime !== null && (
                 <div 
-                  className="absolute bottom-6 -translate-x-1/2 px-2.5 py-1 rounded-md bg-zinc-900 border border-[#0072ce] text-[11px] font-mono text-cyan-300 shadow-xl pointer-events-none backdrop-blur-md"
+                  className="absolute bottom-6 -translate-x-1/2 px-2.5 py-1 rounded-md bg-zinc-900 border border-cyan-500 text-[11px] font-mono text-cyan-300 shadow-xl pointer-events-none backdrop-blur-md"
                   style={{ left: `${hoverPosition}%` }}
                 >
                   {formatTime(hoverTime)}
@@ -380,7 +393,7 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
             </div>
           </div>
 
-          {/* PS4 Playback Control Center (Buttons Row) */}
+          {/* JEmby Playback Control Center (Buttons Row) */}
           <div className="flex items-center justify-between pt-1">
             {/* Left Controls: Volume & Status */}
             <div className="flex items-center gap-3 w-1/4">
@@ -404,32 +417,31 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
               />
             </div>
 
-            {/* Center Controls: Iconic PS4 Media Bar */}
+            {/* Center Controls: JEmby Cinema Media Bar */}
             <div className="flex items-center gap-4 md:gap-6 justify-center flex-1">
-              {/* L1: Jump -30s */}
+              {/* Jump -30s */}
               <button 
                 onClick={() => seek(-30)}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white/80 hover:text-white transition-all backdrop-blur-md"
-                title="Jump -30s (L1)"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white/80 hover:text-white transition-all backdrop-blur-md cursor-pointer"
+                title="Jump back 30s"
               >
-                <span className="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-600 text-[10px] font-bold font-mono">L1</span>
-                <span className="text-xs font-semibold">-30s</span>
+                <span className="text-xs font-semibold text-zinc-300">-30s</span>
               </button>
 
-              {/* L2 / Left: Rewind -10s */}
+              {/* Rewind -10s */}
               <button 
                 onClick={() => seek(-10)}
-                className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 flex items-center justify-center text-white/90 hover:text-white transition-all shadow-md active:scale-95"
+                className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 flex items-center justify-center text-white/90 hover:text-white transition-all shadow-md active:scale-95 cursor-pointer"
                 title="Rewind 10s (←)"
               >
                 <RotateCcw size={18} />
               </button>
 
-              {/* Main PS4 Circular Play / Pause Button with PlayStation Neon Glow */}
+              {/* Main Circular Play / Pause Button with Cyan Glow */}
               <button 
                 onClick={togglePlay}
-                className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#003791] to-[#0072ce] hover:from-[#0047ba] hover:to-[#2997ff] text-white flex items-center justify-center shadow-[0_0_25px_rgba(0,114,206,0.8)] border-2 border-cyan-300 transform hover:scale-105 active:scale-95 transition-all relative group"
-                title={isPlaying ? "Pause (Space / ✕)" : "Play (Space / ✕)"}
+                className="w-14 h-14 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white flex items-center justify-center shadow-[0_0_25px_rgba(6,182,212,0.6)] border-2 border-cyan-300 transform hover:scale-105 active:scale-95 transition-all relative group cursor-pointer"
+                title={isPlaying ? "Pause (Space / Enter)" : "Play (Space / Enter)"}
               >
                 {isPlaying ? (
                   <Pause size={24} className="fill-white" />
@@ -437,29 +449,28 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
                   <Play size={24} className="fill-white ml-1" />
                 )}
 
-                {/* PS4 Blue Circle Prompt Ring */}
-                <span className="absolute -bottom-2 px-1.5 py-0.2 rounded-full bg-black/80 border border-blue-400 text-[9px] font-black text-cyan-300 uppercase tracking-tighter">
-                  ✕ ENTER
+                {/* Status Indicator */}
+                <span className="absolute -bottom-2 px-2 py-0.5 rounded-full bg-black/85 border border-cyan-400/50 text-[9px] font-bold text-cyan-300 uppercase tracking-wider shadow-md">
+                  {isPlaying ? 'PAUSE' : 'PLAY'}
                 </span>
               </button>
 
-              {/* R2 / Right: Fast-Forward +10s */}
+              {/* Fast-Forward +10s */}
               <button 
                 onClick={() => seek(10)}
-                className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 flex items-center justify-center text-white/90 hover:text-white transition-all shadow-md active:scale-95"
+                className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 flex items-center justify-center text-white/90 hover:text-white transition-all shadow-md active:scale-95 cursor-pointer"
                 title="Forward 10s (→)"
               >
                 <RotateCw size={18} />
               </button>
 
-              {/* R1: Jump +30s */}
+              {/* Jump +30s */}
               <button 
                 onClick={() => seek(30)}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white/80 hover:text-white transition-all backdrop-blur-md"
-                title="Jump +30s (R1)"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white/80 hover:text-white transition-all backdrop-blur-md cursor-pointer"
+                title="Jump forward 30s"
               >
-                <span className="text-xs font-semibold">+30s</span>
-                <span className="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-600 text-[10px] font-bold font-mono">R1</span>
+                <span className="text-xs font-semibold text-zinc-300">+30s</span>
               </button>
             </div>
 
@@ -472,9 +483,9 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
                     setShowAudioMenu(!showAudioMenu);
                     setShowSubMenu(false);
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all backdrop-blur-md ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all backdrop-blur-md cursor-pointer ${
                     showAudioMenu 
-                      ? 'bg-[#0072ce] text-white border-cyan-300 shadow-[0_0_12px_#0072ce]' 
+                      ? 'bg-cyan-600 text-white border-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.6)]' 
                       : 'bg-white/10 hover:bg-white/20 text-white/80 border-white/15'
                   }`}
                   title="Audio stream options"
@@ -485,10 +496,10 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
 
                 {/* Audio Tracks Dropdown */}
                 {showAudioMenu && (
-                  <div className="absolute right-0 bottom-full mb-3 w-56 rounded-2xl bg-zinc-900/95 border border-[#0072ce]/80 shadow-[0_10px_35px_rgba(0,0,0,0.9)] p-2 z-50 backdrop-blur-xl">
+                  <div className="absolute right-0 bottom-full mb-3 w-56 rounded-2xl bg-zinc-900/95 border border-cyan-500/50 shadow-[0_10px_35px_rgba(0,0,0,0.9)] p-2 z-50 backdrop-blur-xl">
                     <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-400 border-b border-zinc-800 mb-1 flex items-center justify-between">
                       <span>Audio Streams</span>
-                      <span className="font-mono text-zinc-500">PS4</span>
+                      <span className="font-mono text-cyan-400/70 text-[9px]">JEmby</span>
                     </div>
                     <div className="space-y-0.5">
                       {audioTracks.map((track, i) => (
@@ -498,9 +509,9 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
                             setSelectedAudio(i);
                             setShowAudioMenu(false);
                           }}
-                          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all ${
+                          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all cursor-pointer ${
                             selectedAudio === i 
-                              ? 'bg-[#0072ce]/30 text-cyan-300 border border-[#0072ce]/50 font-bold' 
+                              ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 font-bold' 
                               : 'text-zinc-300 hover:text-white hover:bg-white/10'
                           }`}
                         >
@@ -523,9 +534,9 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
                     setShowSubMenu(!showSubMenu);
                     setShowAudioMenu(false);
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all backdrop-blur-md ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all backdrop-blur-md cursor-pointer ${
                     showSubMenu || selectedSub !== null 
-                      ? 'bg-[#0072ce] text-white border-cyan-300 shadow-[0_0_12px_#0072ce]' 
+                      ? 'bg-cyan-600 text-white border-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.6)]' 
                       : 'bg-white/10 hover:bg-white/20 text-white/80 border-white/15'
                   }`}
                   title="Subtitles track options"
@@ -536,10 +547,10 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
 
                 {/* Subtitles Dropdown */}
                 {showSubMenu && (
-                  <div className="absolute right-0 bottom-full mb-3 w-52 rounded-2xl bg-zinc-900/95 border border-[#0072ce]/80 shadow-[0_10px_35px_rgba(0,0,0,0.9)] p-2 z-50 backdrop-blur-xl">
+                  <div className="absolute right-0 bottom-full mb-3 w-52 rounded-2xl bg-zinc-900/95 border border-cyan-500/50 shadow-[0_10px_35px_rgba(0,0,0,0.9)] p-2 z-50 backdrop-blur-xl">
                     <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-400 border-b border-zinc-800 mb-1 flex items-center justify-between">
                       <span>Subtitles</span>
-                      <span className="font-mono text-zinc-500">PS4</span>
+                      <span className="font-mono text-cyan-400/70 text-[9px]">JEmby</span>
                     </div>
                     <div className="space-y-0.5">
                       {subtitles.map((sub, i) => {
@@ -551,9 +562,9 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
                               setSelectedSub(i === 0 ? null : i);
                               setShowSubMenu(false);
                             }}
-                            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all ${
+                            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all cursor-pointer ${
                               isSubActive 
-                                ? 'bg-[#0072ce]/30 text-cyan-300 border border-[#0072ce]/50 font-bold' 
+                                ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 font-bold' 
                                 : 'text-zinc-300 hover:text-white hover:bg-white/10'
                             }`}
                           >
@@ -567,60 +578,60 @@ export function VideoPlayer({ movie, onClose }: VideoPlayerProps) {
                 )}
               </div>
 
-              {/* PS4 Square (□) Fullscreen Button */}
+              {/* Fullscreen Button */}
               <button 
                 onClick={toggleFullscreen}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white/80 hover:text-white transition-all backdrop-blur-md"
-                title="Toggle Fullscreen (F / □)"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white/80 hover:text-white transition-all backdrop-blur-md cursor-pointer"
+                title="Toggle Fullscreen (F)"
               >
-                <span className="w-4 h-4 rounded bg-[#cf3476] text-white flex items-center justify-center text-[10px] font-black border border-pink-300 shadow-[0_0_6px_#cf3476]">
-                  □
-                </span>
                 {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
+                <span className="text-xs font-medium hidden sm:inline">{isFullscreen ? 'Exit Full' : 'Fullscreen'}</span>
               </button>
             </div>
           </div>
 
-          {/* Authentic PS4 DualShock Controller Legend Bar (Bottom Strip) */}
-          <div className="pt-3 border-t border-white/10 flex items-center justify-between text-[11px] font-semibold text-white/60 tracking-wider">
+          {/* JEmby Navigation & Remote Legend Bar (Bottom Strip) */}
+          <div className="pt-3 border-t border-white/10 flex items-center justify-between text-[11px] font-medium text-white/60 tracking-wider">
             <div className="flex items-center gap-5 flex-wrap">
               <span className="flex items-center gap-1.5">
-                <span className="w-4 h-4 rounded-full bg-[#0072ce] text-white flex items-center justify-center text-[9px] font-black border border-cyan-300 shadow-[0_0_6px_#0072ce]">
-                  ✕
-                </span>
+                <kbd className="px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 font-mono text-[10px]">
+                  OK / Space
+                </kbd>
                 <span>Play / Pause</span>
               </span>
 
               <span className="flex items-center gap-1.5">
-                <span className="w-4 h-4 rounded-full bg-[#e81123] text-white flex items-center justify-center text-[9px] font-black border border-red-300 shadow-[0_0_6px_#e81123]">
-                  ◯
-                </span>
-                <span>Back</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-white/90 font-mono text-[10px]">
+                  Esc / Back
+                </kbd>
+                <span>Return</span>
               </span>
 
               <span className="flex items-center gap-1.5">
-                <span className="w-4 h-4 rounded-full bg-[#00aa55] text-white flex items-center justify-center text-[9px] font-black border border-emerald-300 shadow-[0_0_6px_#00aa55]">
-                  △
-                </span>
-                <span>Hide / Show HUD</span>
+                <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-white/90 font-mono text-[10px]">
+                  ← / →
+                </kbd>
+                <span>Seek 10s</span>
               </span>
 
               <span className="flex items-center gap-1.5">
-                <span className="w-4 h-4 rounded bg-[#cf3476] text-white flex items-center justify-center text-[9px] font-black border border-pink-300 shadow-[0_0_6px_#cf3476]">
-                  □
-                </span>
+                <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-white/90 font-mono text-[10px]">
+                  I
+                </kbd>
+                <span>Toggle HUD</span>
+              </span>
+
+              <span className="flex items-center gap-1.5">
+                <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-white/90 font-mono text-[10px]">
+                  F
+                </kbd>
                 <span>Fullscreen</span>
-              </span>
-
-              <span className="flex items-center gap-1.5 text-white/50">
-                <span className="px-1 rounded bg-zinc-800 border border-zinc-700 text-[9px] font-mono">OPTIONS</span>
-                <span>Audio / Subs</span>
               </span>
             </div>
 
-            <div className="hidden md:flex items-center gap-2 text-cyan-400/80 font-mono text-[10px]">
+            <div className="hidden md:flex items-center gap-2 text-cyan-400 font-mono text-[10px]">
               <Sparkles size={12} className="text-cyan-400" />
-              <span>PlayStation 4 Edition</span>
+              <span>JEmby Cinema Edition</span>
             </div>
           </div>
 

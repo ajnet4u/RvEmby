@@ -1,0 +1,13 @@
+{
+	"appId": "com.rvolution.player",
+	"appName": "R-Volution Player",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https",
+		"cleartext": true
+	},
+	"android": {
+		"allowMixedContent": true,
+		"backgroundColor": "#000000"
+	}
+}

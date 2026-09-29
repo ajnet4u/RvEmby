@@ -15,15 +15,15 @@ import { SettingsModal } from './components/SettingsModal';
 import { AnimatePresence, motion } from 'motion/react';
 import { Star, EyeOff, Server, AlertCircle, Loader2, Search, X } from 'lucide-react';
 
-const STORAGE_KEY = 'rvemby_server_settings';
-const FAVORITES_KEY = 'rvemby_favorites';
-const DISMISSED_KEY = 'rvemby_has_dismissed_setup';
+const STORAGE_KEY = 'jemby_server_settings';
+const FAVORITES_KEY = 'jemby_favorites';
+const DISMISSED_KEY = 'jemby_has_dismissed_setup';
 
 export default function App() {
   // Load saved settings from localStorage or environment variables (e.g. Docker Compose)
   const [settings, setSettings] = useState<ServerSettings>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('rvemby_server_settings');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.apiKey) return parsed;
@@ -42,7 +42,7 @@ export default function App() {
 
   const [favorites, setFavorites] = useState<string[]>(() => {
     try {
-      const saved = localStorage.getItem(FAVORITES_KEY);
+      const saved = localStorage.getItem(FAVORITES_KEY) || localStorage.getItem('rvemby_favorites');
       if (saved) return JSON.parse(saved);
     } catch (e) {}
     return [];
@@ -72,7 +72,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(() => {
     if (settings.apiKey) return false;
     try {
-      return localStorage.getItem(DISMISSED_KEY) !== 'true';
+      return localStorage.getItem(DISMISSED_KEY) !== 'true' && localStorage.getItem('rvemby_has_dismissed_setup') !== 'true';
     } catch (e) {
       return false;
     }

@@ -20,9 +20,13 @@ export function Sidebar({ activeTab, onSelectTab, onOpenSettings, isConnected, m
   ];
 
   return (
-    <div className="w-20 md:w-24 shrink-0 bg-black/60 backdrop-blur-xl border-r border-white/10 flex flex-col items-center py-6 z-20 h-full select-none">
-      <div className="text-white/40 mb-4 flex flex-col items-center">
-        <ChevronUp size={18} />
+    <div className="w-20 md:w-24 shrink-0 bg-black/60 backdrop-blur-xl border-r border-white/10 flex flex-col items-center py-5 z-20 h-full select-none">
+      {/* JEmby Brand Header */}
+      <div className="mb-5 flex flex-col items-center group cursor-default">
+        <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-cyan-500/25 to-blue-600/30 border border-cyan-400/40 flex items-center justify-center shadow-[0_0_18px_rgba(6,182,212,0.3)] transition-transform duration-300 group-hover:scale-105">
+          <span className="text-cyan-400 font-black text-xl tracking-tighter drop-shadow-[0_0_8px_rgba(6,182,212,0.8)]">J</span>
+        </div>
+        <span className="text-[11px] font-black tracking-widest text-white mt-1 uppercase">JEmby</span>
       </div>
 
       <div className="flex-1 flex flex-col gap-5 w-full items-center">
