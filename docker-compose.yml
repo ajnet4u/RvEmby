@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   jemby-player:
     container_name: jemby-player
