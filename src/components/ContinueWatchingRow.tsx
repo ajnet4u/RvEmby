@@ -89,12 +89,14 @@ export function ContinueWatchingRow({
             <motion.div
               key={movie.id}
               tabIndex={0}
+              data-tv-focus="true"
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: Math.min(index * 0.04, 0.3), duration: 0.3 }}
               onMouseEnter={() => onHover && onHover(movie)}
-              onFocus={() => {
-                onHover && onHover(movie);
+              onFocus={(e) => {
+                if (onHover) onHover(movie);
+                e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -103,7 +105,7 @@ export function ContinueWatchingRow({
                 }
               }}
               onClick={() => onPlay(movie, movie.playbackPositionSeconds)}
-              className="group relative w-60 sm:w-64 md:w-72 aspect-video shrink-0 rounded-xl overflow-hidden bg-zinc-900 border border-white/15 hover:border-cyan-400/80 focus:border-cyan-400 shadow-lg hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] focus:shadow-[0_0_20px_rgba(6,182,212,0.5)] focus:outline-none transition-all duration-300 cursor-pointer transform hover:-translate-y-1 focus:-translate-y-1"
+              className="group relative w-60 sm:w-64 md:w-72 aspect-video shrink-0 rounded-xl overflow-hidden bg-zinc-900 border border-white/15 hover:border-cyan-400/80 focus:border-cyan-400 shadow-lg hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] focus:shadow-[0_0_30px_rgba(6,182,212,0.9)] focus:outline-none focus:ring-4 focus:ring-cyan-400 focus:scale-105 transition-all duration-300 cursor-pointer transform hover:-translate-y-1 focus:-translate-y-1 z-10 focus:z-30"
             >
               {/* Backdrop / Poster Image */}
               {imageSrc ? (

@@ -46,6 +46,7 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
+          data-tv-modal="true"
           className="fixed inset-0 z-40 bg-black flex text-white"
         >
           {/* Background Backdrop for Details */}
@@ -69,8 +70,9 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
             {/* Top Bar */}
             <div className="mb-6 md:mb-10">
               <button 
+                data-tv-focus="true"
                 onClick={onClose}
-                className="flex items-center gap-2 text-white/70 hover:text-white transition-colors group focus:outline-none focus:ring-2 focus:ring-cyan-400 rounded-full px-2 py-1"
+                className="flex items-center gap-2 text-white/70 hover:text-white transition-colors group focus:outline-none focus:ring-4 focus:ring-cyan-400 focus:scale-105 rounded-full px-2 py-1"
               >
                 <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition-colors backdrop-blur-md">
                   <ArrowLeft size={20} />
@@ -85,17 +87,25 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                 initial={{ opacity: 0, x: -50 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.2 }}
-                className="shrink-0 w-64 md:w-80 lg:w-96 relative group cursor-pointer"
+                tabIndex={0}
+                data-tv-focus="true"
+                className="shrink-0 w-64 md:w-80 lg:w-96 relative group cursor-pointer focus:outline-none focus:ring-4 focus:ring-cyan-400 rounded-2xl"
                 onClick={onPlay}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onPlay();
+                  }
+                }}
               >
-                <div className="aspect-[2/3] rounded-2xl overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.8)] border-2 border-white/10 transition-colors group-hover:border-cyan-400">
+                <div className="aspect-[2/3] rounded-2xl overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.8)] border-2 border-white/10 transition-colors group-hover:border-cyan-400 group-focus:border-cyan-400">
                   {movie.poster ? (
                     <img src={movie.poster} alt={movie.title} className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full bg-zinc-800" />
                   )}
                   {/* Play button overlay */}
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
                     <div className="w-20 h-20 rounded-full bg-cyan-600/80 flex items-center justify-center text-white border border-cyan-300 shadow-[0_0_30px_rgba(6,182,212,0.8)]">
                       <Play fill="currentColor" size={32} className="ml-2" />
                     </div>
@@ -148,6 +158,7 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                     <>
                       <button
                         autoFocus
+                        data-tv-focus="true"
                         onClick={() => onPlay(movie.playbackPositionSeconds)}
                         className="flex items-center gap-3 px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-base shadow-[0_0_25px_rgba(6,182,212,0.6)] focus:outline-none focus:ring-4 focus:ring-cyan-300 transform focus:scale-105 transition-all cursor-pointer"
                       >
@@ -157,8 +168,9 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                       </button>
 
                       <button
+                        data-tv-focus="true"
                         onClick={() => onPlay(0)}
-                        className="flex items-center gap-2 px-5 py-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/90 hover:text-white font-semibold text-sm border border-white/20 transition-all cursor-pointer"
+                        className="flex items-center gap-2 px-5 py-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/90 hover:text-white font-semibold text-sm border border-white/20 focus:outline-none focus:ring-4 focus:ring-cyan-400 focus:scale-105 transition-all cursor-pointer"
                         title="Play from start"
                       >
                         <RotateCcw size={16} />
@@ -168,6 +180,7 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                   ) : (
                     <button
                       autoFocus
+                      data-tv-focus="true"
                       onClick={() => onPlay(0)}
                       className="flex items-center gap-3 px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-base shadow-[0_0_25px_rgba(6,182,212,0.6)] focus:outline-none focus:ring-4 focus:ring-cyan-300 transform focus:scale-105 transition-all cursor-pointer"
                     >

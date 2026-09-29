@@ -326,10 +326,11 @@ export function MovieGrid({
             <motion.div
               key={movie.id}
               tabIndex={0}
+              data-tv-focus="true"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: Math.min(index * 0.02, 0.4), duration: 0.3 }}
-              className="group relative cursor-pointer outline-none"
+              className="group relative cursor-pointer outline-none focus:outline-none"
               onMouseEnter={() => onHover(movie)}
               onMouseLeave={() => onHover(null)}
               onFocus={(e) => {
@@ -345,7 +346,7 @@ export function MovieGrid({
               }}
               onClick={() => onSelect(movie)}
             >
-              <div className="aspect-[2/3] rounded-xl overflow-hidden shadow-lg transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_20px_35px_rgba(0,0,0,0.8)] group-hover:ring-4 ring-white group-focus:ring-4 group-focus:ring-cyan-400 group-focus:border-cyan-400 group-focus:-translate-y-2 group-focus:shadow-[0_0_30px_rgba(6,182,212,0.8)] relative border-2 border-transparent group-hover:border-white">
+              <div className="aspect-[2/3] rounded-xl overflow-hidden shadow-lg transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_20px_35px_rgba(0,0,0,0.8)] group-hover:ring-4 ring-white group-focus:ring-4 group-focus:ring-cyan-400 group-focus:border-cyan-400 group-focus:-translate-y-2 group-focus:shadow-[0_0_35px_rgba(6,182,212,0.9)] relative border-2 border-transparent group-hover:border-white">
                 {movie.poster ? (
                   <img 
                     src={movie.poster} 
@@ -421,10 +422,11 @@ export function MovieGrid({
               <motion.div
                 key={movie.id}
                 tabIndex={0}
+                data-tv-focus="true"
                 initial={{ opacity: 0, x: 50 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: Math.min(index * 0.04, 0.4), duration: 0.3 }}
-                className="shrink-0 group relative cursor-pointer snap-start outline-none"
+                className="shrink-0 group relative cursor-pointer snap-start outline-none focus:outline-none"
                 onMouseEnter={() => onHover(movie)}
                 onMouseLeave={() => onHover(null)}
                 onFocus={(e) => {

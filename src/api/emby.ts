@@ -1,4 +1,4 @@
-import { Movie, ServerSettings, SubtitleTrack, AudioTrackInfo } from '../types';
+import { Movie, TvShow, Season, Episode, ServerSettings, SubtitleTrack, AudioTrackInfo } from '../types';
 
 /**
  * Detects if an audio codec can be decoded directly in a standard web browser.
@@ -581,6 +581,266 @@ export async function fetchEmbyResumeItems(settings: ServerSettings): Promise<Mo
     return validResume.map((item: any) => mapEmbyItemToMovie(item, baseUrl, settings));
   } catch (error) {
     console.error("Failed to fetch Emby resume items:", error);
+    return [];
+  }
+}
+
+/**
+ * Converts an Episode object into a Movie-compatible object for the universal VideoPlayer.
+ */
+export function episodeToPlayableMovie(episode: Episode): Movie {
+  const padSeason = episode.seasonNumber.toString().padStart(2, '0');
+  const padEpisode = episode.episodeNumber.toString().padStart(2, '0');
+  return {
+    id: episode.id,
+    mediaSourceId: episode.mediaSourceId || episode.id,
+    title: `${episode.seriesName} • S${padSeason}E${padEpisode} "${episode.title}"`,
+    overview: episode.overview,
+    runtime: episode.runtime,
+    poster: episode.thumb,
+    backdrop: episode.thumb,
+    videoUrl: episode.videoUrl,
+    rating: episode.rating,
+    resolutionBadge: episode.resolutionBadge,
+    hdrBadge: episode.hdrBadge,
+    audioTracks: episode.audioTracks,
+    subtitles: episode.subtitles,
+    subtitleTracks: episode.subtitleTracks,
+    playbackPositionSeconds: episode.playbackPositionSeconds,
+    playbackPercentage: episode.playbackPercentage,
+    lastWatchedAt: episode.lastWatchedAt
+  };
+}
+
+/**
+ * Fetches all TV Shows (Series) from the Emby server.
+ */
+export async function fetchEmbyTvShows(settings: ServerSettings): Promise<TvShow[]> {
+  try {
+    const baseUrl = settings.url.replace(/\/$/, '');
+    const url = `${baseUrl}/Items?IncludeItemTypes=Series&Recursive=true&Limit=1000&Fields=${EMBY_ITEM_FIELDS}&SortBy=SortName&api_key=${encodeURIComponent(settings.apiKey)}`;
+    
+    const response = await fetch(url, {
+      headers: {
+        'X-Emby-Token': settings.apiKey,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) return [];
+
+    const data = await response.json();
+    if (!data || !Array.isArray(data.Items)) return [];
+
+    return data.Items.map((item: any): TvShow => {
+      const posterUrl = item.ImageTags?.Primary 
+        ? `${baseUrl}/Items/${item.Id}/Images/Primary?tag=${item.ImageTags.Primary}&quality=90` 
+        : null;
+        
+      const backdropUrl = item.BackdropImageTags && item.BackdropImageTags.length > 0
+        ? `${baseUrl}/Items/${item.Id}/Images/Backdrop?tag=${item.BackdropImageTags[0]}&quality=90&maxWidth=1920` 
+        : null;
+
+      const cast = item.People?.filter((p: any) => p.Type === 'Actor').slice(0, 6).map((p: any) => p.Name);
+
+      return {
+        id: item.Id,
+        title: item.Name,
+        year: item.ProductionYear,
+        overview: item.Overview,
+        poster: posterUrl,
+        backdrop: backdropUrl,
+        rating: item.CommunityRating ? Math.round(item.CommunityRating * 10) / 10 : undefined,
+        contentRating: item.OfficialRating,
+        genres: item.Genres || [],
+        status: item.Status,
+        seasonsCount: item.ChildCount || undefined,
+        episodesCount: item.RecursiveItemCount || undefined,
+        cast: cast && cast.length > 0 ? cast : undefined
+      };
+    });
+  } catch (err) {
+    console.error("Failed to fetch Emby TV shows:", err);
+    return [];
+  }
+}
+
+/**
+ * Fetches all Seasons for a specific TV Show (Series).
+ */
+export async function fetchEmbySeasons(settings: ServerSettings, seriesId: string): Promise<Season[]> {
+  try {
+    const baseUrl = settings.url.replace(/\/$/, '');
+    const url = `${baseUrl}/Shows/${seriesId}/Seasons?Fields=${EMBY_ITEM_FIELDS}&api_key=${encodeURIComponent(settings.apiKey)}`;
+
+    const res = await fetch(url, {
+      headers: {
+        'X-Emby-Token': settings.apiKey,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!res.ok) return [];
+
+    const data = await res.json();
+    if (!data || !Array.isArray(data.Items)) return [];
+
+    return data.Items.map((item: any): Season => {
+      const posterUrl = item.ImageTags?.Primary 
+        ? `${baseUrl}/Items/${item.Id}/Images/Primary?tag=${item.ImageTags.Primary}&quality=90` 
+        : null;
+
+      return {
+        id: item.Id,
+        seriesId,
+        seriesName: item.SeriesName,
+        name: item.Name || `Season ${item.IndexNumber || 1}`,
+        seasonNumber: item.IndexNumber !== undefined ? item.IndexNumber : 1,
+        poster: posterUrl,
+        episodesCount: item.ChildCount
+      };
+    });
+  } catch (err) {
+    console.error(`Failed to fetch seasons for series ${seriesId}:`, err);
+    return [];
+  }
+}
+
+/**
+ * Fetches Episodes for a specific TV Show and optional Season.
+ */
+export async function fetchEmbyEpisodes(
+  settings: ServerSettings, 
+  seriesId: string, 
+  seasonId?: string
+): Promise<Episode[]> {
+  try {
+    const baseUrl = settings.url.replace(/\/$/, '');
+    const seasonQuery = seasonId ? `&seasonId=${seasonId}` : '';
+    const url = `${baseUrl}/Shows/${seriesId}/Episodes?Fields=${EMBY_ITEM_FIELDS}${seasonQuery}&api_key=${encodeURIComponent(settings.apiKey)}`;
+
+    const res = await fetch(url, {
+      headers: {
+        'X-Emby-Token': settings.apiKey,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!res.ok) return [];
+
+    const data = await res.json();
+    if (!data || !Array.isArray(data.Items)) return [];
+
+    return data.Items.map((item: any): Episode => {
+      const thumbUrl = item.ImageTags?.Primary 
+        ? `${baseUrl}/Items/${item.Id}/Images/Primary?tag=${item.ImageTags.Primary}&quality=90&maxWidth=720` 
+        : null;
+
+      const runtimeMinutes = item.RunTimeTicks ? Math.floor(item.RunTimeTicks / 10000000 / 60) : 0;
+
+      // Streams & codecs
+      const streams = item.MediaStreams || [];
+      const videoStream = streams.find((s: any) => s.Type === 'Video');
+      const audioStreams = streams.filter((s: any) => s.Type === 'Audio');
+      const subtitleStreams = streams.filter((s: any) => s.Type === 'Subtitle');
+
+      let resolutionBadge = '1080p';
+      if (videoStream) {
+        const width = videoStream.Width || 0;
+        if (width >= 3800) resolutionBadge = '4K UHD';
+        else if (width >= 1900) resolutionBadge = '1080p';
+        else if (width >= 1200) resolutionBadge = '720p';
+      }
+
+      let hdrBadge: string | undefined = undefined;
+      if (videoStream) {
+        const range = (videoStream.VideoRange || '').toUpperCase();
+        if (range.includes('DOVI')) hdrBadge = 'Dolby Vision';
+        else if (range.includes('HDR')) hdrBadge = 'HDR';
+      }
+
+      const audioTracks: AudioTrackInfo[] = audioStreams.map((a: any) => ({
+        lang: (a.Language || 'ENG').toUpperCase(),
+        format: a.Codec ? a.Codec.toUpperCase() : 'Stereo',
+        codec: (a.Codec || '').toLowerCase(),
+        index: a.Index,
+        channels: a.Channels,
+        isDefault: !!a.IsDefault
+      }));
+
+      const primaryAudio = audioTracks.find(a => a.isDefault) || audioTracks[0];
+      const mediaSourceId = item.MediaSources?.[0]?.Id || item.Id;
+
+      const needsAudioTranscode = primaryAudio?.codec ? !isAudioCodecSupported(primaryAudio.codec) : true;
+      const videoUrl = needsAudioTranscode
+        ? buildEmbyHlsStreamUrl(baseUrl, item.Id, settings.apiKey, {
+            mediaSourceId,
+            audioStreamIndex: primaryAudio?.index,
+            audioCodec: primaryAudio?.codec,
+            channels: 2
+          })
+        : buildEmbyStreamUrl(baseUrl, item.Id, settings.apiKey, {
+            mediaSourceId,
+            audioStreamIndex: primaryAudio?.index,
+            audioCodec: primaryAudio?.codec,
+            forceTranscodeAudio: false
+          });
+
+      const subtitleTracks: SubtitleTrack[] = subtitleStreams.map((s: any, idx: number) => {
+        const streamIndex = s.Index !== undefined ? s.Index : idx;
+        const langName = s.Language ? s.Language.toUpperCase() : 'Unknown';
+        const codec = (s.Codec || 'vtt').toLowerCase();
+        const isText = !['pgssub', 'pgs', 'dvd_subtitle', 'vobsub'].includes(codec) && s.IsText !== false;
+        const vttUrl = `${baseUrl}/Videos/${item.Id}/${mediaSourceId}/Subtitles/${streamIndex}/0/Stream.vtt?api_key=${encodeURIComponent(settings.apiKey)}`;
+        return {
+          id: `sub-${item.Id}-${streamIndex}`,
+          index: streamIndex,
+          lang: langName,
+          label: s.DisplayTitle || `${langName} Subtitle`,
+          format: codec,
+          url: vttUrl,
+          isDefault: !!s.IsDefault,
+          isText
+        };
+      });
+
+      let playbackPositionSeconds: number | undefined = undefined;
+      let playbackPercentage: number | undefined = undefined;
+      if (item.UserData?.PlaybackPositionTicks) {
+        playbackPositionSeconds = Math.floor(item.UserData.PlaybackPositionTicks / 10000000);
+        const totalSeconds = item.RunTimeTicks ? Math.floor(item.RunTimeTicks / 10000000) : 0;
+        if (totalSeconds > 0) {
+          playbackPercentage = Math.min(100, Math.round((playbackPositionSeconds / totalSeconds) * 100));
+        }
+      }
+
+      return {
+        id: item.Id,
+        seriesId,
+        seriesName: item.SeriesName || 'TV Show',
+        seasonId: item.SeasonId || seasonId || '',
+        seasonName: item.SeasonName || `Season ${item.ParentIndexNumber || 1}`,
+        seasonNumber: item.ParentIndexNumber !== undefined ? item.ParentIndexNumber : 1,
+        episodeNumber: item.IndexNumber !== undefined ? item.IndexNumber : 1,
+        title: item.Name || `Episode ${item.IndexNumber || 1}`,
+        overview: item.Overview,
+        runtime: runtimeMinutes,
+        thumb: thumbUrl,
+        videoUrl,
+        mediaSourceId,
+        rating: item.CommunityRating,
+        resolutionBadge,
+        hdrBadge,
+        audioTracks: audioTracks.length > 0 ? audioTracks : undefined,
+        subtitles: subtitleTracks.map(t => t.label),
+        subtitleTracks: subtitleTracks.length > 0 ? subtitleTracks : undefined,
+        playbackPositionSeconds,
+        playbackPercentage,
+        lastWatchedAt: item.UserData?.LastPlayedDate ? new Date(item.UserData.LastPlayedDate).getTime() : undefined
+      };
+    });
+  } catch (err) {
+    console.error(`Failed to fetch episodes for series ${seriesId}:`, err);
     return [];
   }
 }

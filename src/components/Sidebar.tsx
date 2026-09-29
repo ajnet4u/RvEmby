@@ -1,6 +1,6 @@
-import { Home, Film, Disc3, RotateCcw, Heart, ChevronUp, Settings, Wifi, WifiOff, Cpu } from 'lucide-react';
+import { Home, Film, Disc3, RotateCcw, Heart, ChevronUp, Settings, Wifi, WifiOff, Cpu, Tv } from 'lucide-react';
 
-export type NavTab = 'home' | 'movies' | 'recent' | 'collections' | 'favorites' | 'codecs';
+export type NavTab = 'home' | 'movies' | 'tv' | 'recent' | 'collections' | 'favorites' | 'codecs';
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -14,6 +14,7 @@ export function Sidebar({ activeTab, onSelectTab, onOpenSettings, isConnected, m
   const navItems: { id: NavTab; icon: any; label: string }[] = [
     { id: 'home', icon: Home, label: 'ACCUEIL' },
     { id: 'movies', icon: Film, label: 'MOVIES' },
+    { id: 'tv', icon: Tv, label: 'SERIES' },
     { id: 'recent', icon: RotateCcw, label: 'RECENT' },
     { id: 'collections', icon: Disc3, label: 'COLLECTIONS' },
     { id: 'favorites', icon: Heart, label: 'FAVORITES' },
@@ -37,22 +38,23 @@ export function Sidebar({ activeTab, onSelectTab, onOpenSettings, isConnected, m
           return (
             <button
               key={item.id}
+              data-tv-focus="true"
               onClick={() => onSelectTab(item.id)}
-              className={`flex flex-col items-center gap-1.5 transition-all duration-300 group relative w-full ${
+              className={`flex flex-col items-center gap-1.5 transition-all duration-300 group relative w-full focus:outline-none ${
                 isActive 
                   ? 'text-white' 
-                  : 'text-white/45 hover:text-white'
+                  : 'text-white/45 hover:text-white focus:text-white'
               }`}
             >
               <div className={`p-3 rounded-2xl flex items-center justify-center transition-all ${
                 isActive 
-                  ? 'bg-white/20 shadow-[0_0_20px_rgba(255,255,255,0.2)] border border-white/40 scale-105' 
-                  : 'group-hover:bg-white/10 group-hover:scale-105'
+                  ? 'bg-white/20 shadow-[0_0_20px_rgba(255,255,255,0.2)] border border-white/40 scale-105 ring-2 ring-cyan-400/80' 
+                  : 'group-hover:bg-white/10 group-hover:scale-105 group-focus:bg-white/20 group-focus:scale-110 group-focus:ring-2 group-focus:ring-cyan-400 group-focus:shadow-[0_0_20px_rgba(6,182,212,0.6)]'
               }`}>
                 <Icon size={22} strokeWidth={isActive ? 2.5 : 2} />
               </div>
               <span className={`text-[10px] font-bold tracking-widest uppercase transition-opacity ${
-                isActive ? 'opacity-100 text-white' : 'opacity-60 group-hover:opacity-100'
+                isActive ? 'opacity-100 text-white' : 'opacity-60 group-hover:opacity-100 group-focus:opacity-100'
               }`}>
                 {item.label}
               </span>

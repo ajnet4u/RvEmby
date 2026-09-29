@@ -4,16 +4,20 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Movie, ServerSettings, SortField, SortDirection } from './types';
-import { MOCK_MOVIES } from './mockData';
-import { fetchEmbyMovies, fetchEmbyResumeItems, reportPlaybackProgress } from './api/emby';
+import { Movie, TvShow, Episode, ServerSettings, SortField, SortDirection } from './types';
+import { MOCK_MOVIES, MOCK_TV_SHOWS } from './mockData';
+import { fetchEmbyMovies, fetchEmbyTvShows, fetchEmbyResumeItems, reportPlaybackProgress, episodeToPlayableMovie } from './api/emby';
 import { Sidebar, NavTab } from './components/Sidebar';
 import { MovieGrid } from './components/MovieGrid';
 import { MovieDetails } from './components/MovieDetails';
+import { TvShowGrid } from './components/TvShowGrid';
+import { TvShowDetails } from './components/TvShowDetails';
 import { VideoPlayer } from './components/VideoPlayer';
 import { ContinueWatchingRow } from './components/ContinueWatchingRow';
 import { CodecDiagnosticsPage } from './components/CodecDiagnosticsPage';
 import { SettingsModal } from './components/SettingsModal';
+import { TvRemoteOverlay } from './components/TvRemoteOverlay';
+import { useTvNavigation } from './hooks/useTvNavigation';
 import { 
   getSavedPlaybackProgress, 
   savePlaybackProgress, 
@@ -79,6 +83,7 @@ export default function App() {
   });
 
   const [movies, setMovies] = useState<Movie[]>(MOCK_MOVIES);
+  const [tvShows, setTvShows] = useState<TvShow[]>(MOCK_TV_SHOWS);
   const [continueWatching, setContinueWatching] = useState<Movie[]>(() => {
     // Initial load: seed realistic in-progress items from demo movies
     return [
@@ -111,9 +116,11 @@ export default function App() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
+  const [selectedTvShow, setSelectedTvShow] = useState<TvShow | null>(null);
   const [playingMovie, setPlayingMovie] = useState<Movie | null>(null);
   const [resumeTime, setResumeTime] = useState<number>(0);
   const [hoveredMovie, setHoveredMovie] = useState<Movie | null>(null);
+  const [hoveredTvShow, setHoveredTvShow] = useState<TvShow | null>(null);
 
   // Never automatically force-open the setup dialog on new devices!
   // App opens in clean Demo / Cinema mode; user can click "Connect Emby" whenever ready.
@@ -159,16 +166,17 @@ export default function App() {
     loadServerConfig();
   }, []);
 
-  // Fetch movies and incomplete playback (Continue Watching) data whenever settings change
+  // Fetch movies, TV shows, and incomplete playback (Continue Watching) data whenever settings change
   useEffect(() => {
     async function loadMovies() {
       if (settings.url && settings.apiKey) {
         setLoading(true);
         setError(null);
         try {
-          // Parallel fetch: Library items & Incomplete playback (Resume) items
-          const [embyMovies, resumeItems] = await Promise.all([
+          // Parallel fetch: Movies, TV Series & Incomplete playback (Resume) items
+          const [embyMovies, embyShows, resumeItems] = await Promise.all([
             fetchEmbyMovies(settings),
+            fetchEmbyTvShows(settings),
             fetchEmbyResumeItems(settings)
           ]);
 
@@ -192,10 +200,17 @@ export default function App() {
             setError("Connected to Emby, but no movies were found.");
             setIsConnected(true);
           }
+
+          if (embyShows && embyShows.length > 0) {
+            setTvShows(embyShows);
+          } else {
+            setTvShows(MOCK_TV_SHOWS);
+          }
         } catch (err: any) {
           console.error("Failed to fetch Emby library:", err);
           setError(err.message || "Failed to reach Emby. Showing demo data.");
           setMovies(attachLocalProgressToMovies(MOCK_MOVIES));
+          setTvShows(MOCK_TV_SHOWS);
           setIsConnected(false);
         } finally {
           setLoading(false);
@@ -203,6 +218,7 @@ export default function App() {
       } else {
         const demoMoviesWithProgress = attachLocalProgressToMovies(MOCK_MOVIES);
         setMovies(demoMoviesWithProgress);
+        setTvShows(MOCK_TV_SHOWS);
         setIsConnected(false);
 
         // Check local progress or provide demo continue watching
@@ -278,7 +294,52 @@ export default function App() {
     setPlayingMovie(movie);
     setResumeTime(startSeconds || 0);
     setSelectedMovie(null);
+    setSelectedTvShow(null);
   }, []);
+
+  // Launch TV Episode playback
+  const handlePlayEpisode = useCallback((episode: Episode) => {
+    const playableMovie = episodeToPlayableMovie(episode);
+    handlePlayMovie(playableMovie, episode.playbackPositionSeconds || 0);
+    setSelectedTvShow(null);
+  }, [handlePlayMovie]);
+
+  // Living Room / TV Remote / Gamepad spatial navigation handler
+  const handleBackAction = useCallback(() => {
+    if (playingMovie) {
+      setPlayingMovie(null);
+      return true;
+    }
+    if (selectedTvShow) {
+      setSelectedTvShow(null);
+      return true;
+    }
+    if (selectedMovie) {
+      setSelectedMovie(null);
+      return true;
+    }
+    if (isSettingsOpen) {
+      handleCloseSettings();
+      return true;
+    }
+    if (searchQuery) {
+      setSearchQuery('');
+      return true;
+    }
+    if (selectedGenre) {
+      setSelectedGenre(null);
+      return true;
+    }
+    if (activeTab !== 'home') {
+      setActiveTab('home');
+      return true;
+    }
+    return false;
+  }, [playingMovie, selectedTvShow, selectedMovie, isSettingsOpen, searchQuery, selectedGenre, activeTab]);
+
+  const { isTvMode } = useTvNavigation({
+    onBack: handleBackAction
+  });
 
   // Handle saving settings to state, localStorage & server backend
   const handleSaveSettings = async (newSettings: ServerSettings) => {
@@ -361,9 +422,26 @@ export default function App() {
     return Array.from(set).sort();
   }, [movies]);
 
+  // Filtered TV shows based on search query
+  const displayedTvShows = useMemo(() => {
+    let result = [...tvShows];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(s => 
+        (s.title || '').toLowerCase().includes(q) || 
+        s.genres?.some(g => g.toLowerCase().includes(q))
+      );
+    }
+    return result;
+  }, [tvShows, searchQuery]);
+
+  const activeTvShow = hoveredTvShow || selectedTvShow || displayedTvShows[0] || tvShows[0];
+
   // Current active backdrop
   const activeMovie = hoveredMovie || selectedMovie || displayedMovies[0] || movies[0];
-  const currentBackdrop = activeMovie?.backdrop;
+  const currentBackdrop = activeTab === 'tv'
+    ? (activeTvShow?.backdrop || activeTvShow?.poster)
+    : activeMovie?.backdrop;
 
   // Format runtime from minutes to H:MM
   const formatRuntime = (minutes?: number) => {
@@ -381,6 +459,7 @@ export default function App() {
     switch (activeTab) {
       case 'home': return 'Featured Movies';
       case 'movies': return 'All Movies';
+      case 'tv': return 'TV Series';
       case 'recent': return 'Recently Added';
       case 'collections': return selectedGenre ? `${selectedGenre} Movies` : 'Collections & Genres';
       case 'favorites': return 'Favorite Movies';
@@ -442,6 +521,7 @@ export default function App() {
                 />
                 <input
                   type="text"
+                  data-tv-focus="true"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -451,12 +531,13 @@ export default function App() {
                     }
                   }}
                   placeholder="Search movies by title..."
-                  className="w-44 sm:w-60 md:w-72 pl-9 pr-8 py-1.5 rounded-full bg-black/60 hover:bg-black/75 focus:bg-black/90 border border-white/20 focus:border-cyan-400 text-white placeholder-white/40 text-xs transition-all backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-cyan-400/25 shadow-lg"
+                  className="w-44 sm:w-60 md:w-72 pl-9 pr-8 py-1.5 rounded-full bg-black/60 hover:bg-black/75 focus:bg-black/90 border border-white/20 focus:border-cyan-400 text-white placeholder-white/40 text-xs transition-all backdrop-blur-md focus:outline-none focus:ring-4 focus:ring-cyan-400/80 focus:scale-105 shadow-lg"
                 />
                 {searchQuery && (
                   <button
+                    data-tv-focus="true"
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/50 hover:text-white p-0.5 rounded-full hover:bg-white/10 transition-colors"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/50 hover:text-white p-0.5 rounded-full hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-400"
                     title="Clear search (Esc)"
                   >
                     <X size={13} />
@@ -475,21 +556,23 @@ export default function App() {
 
           {!isConnected && !loading && (
             <button
+              data-tv-focus="true"
               onClick={() => setIsSettingsOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-950/70 border border-amber-500/40 text-amber-200 text-xs backdrop-blur-md hover:bg-amber-900/80 transition-colors shadow-lg cursor-pointer"
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-950/70 border border-amber-500/40 text-amber-200 text-xs backdrop-blur-md hover:bg-amber-900/80 focus:ring-4 focus:ring-amber-400 focus:scale-105 transition-all shadow-lg cursor-pointer focus:outline-none"
             >
               <AlertCircle size={14} className="text-amber-400" />
-              <span>Demo Mode ({movies.length} movies) • Connect Emby</span>
+              <span>Demo Mode ({movies.length} movies • {tvShows.length} series) • Connect Emby</span>
             </button>
           )}
 
           {isConnected && !loading && (
             <button
+              data-tv-focus="true"
               onClick={() => setIsSettingsOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/70 border border-emerald-500/40 text-emerald-200 text-xs backdrop-blur-md hover:bg-emerald-900/80 transition-colors shadow-lg cursor-pointer"
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/70 border border-emerald-500/40 text-emerald-200 text-xs backdrop-blur-md hover:bg-emerald-900/80 focus:ring-4 focus:ring-emerald-400 focus:scale-105 transition-all shadow-lg cursor-pointer focus:outline-none"
             >
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Emby Online ({movies.length} movies)</span>
+              <span>Emby Online ({movies.length} movies • {tvShows.length} series)</span>
             </button>
           )}
         </div>
@@ -499,8 +582,9 @@ export default function App() {
         {activeTab === 'collections' && (
           <div className="pt-16 px-12 pb-2 flex gap-2 overflow-x-auto hide-scrollbar z-20">
             <button
+              data-tv-focus="true"
               onClick={() => setSelectedGenre(null)}
-              className={`px-3.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider transition-all ${
+              className={`px-3.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider transition-all focus:outline-none focus:ring-4 focus:ring-cyan-400 focus:scale-105 ${
                 selectedGenre === null 
                   ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(6,182,212,0.6)]' 
                   : 'bg-white/10 hover:bg-white/20 text-white/80'
@@ -511,8 +595,9 @@ export default function App() {
             {allGenres.map(genre => (
               <button
                 key={genre}
+                data-tv-focus="true"
                 onClick={() => setSelectedGenre(genre)}
-                className={`px-3.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider transition-all shrink-0 ${
+                className={`px-3.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider transition-all shrink-0 focus:outline-none focus:ring-4 focus:ring-cyan-400 focus:scale-105 ${
                   selectedGenre === genre 
                     ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(6,182,212,0.6)]' 
                     : 'bg-white/10 hover:bg-white/20 text-white/80'
@@ -531,8 +616,75 @@ export default function App() {
           </div>
         )}
 
-        {/* Regular Movie Browsing Views (when activeTab !== 'codecs') */}
-        {activeTab !== 'codecs' && (
+        {/* TV Series Browsing View */}
+        {activeTab === 'tv' && (
+          <>
+            {/* Top Content Area - Hovered/Selected TV Series details (Carousel view) */}
+            {!selectedTvShow && viewMode === 'carousel' && activeTvShow && (
+              <div className="flex-1 px-8 md:px-12 flex flex-col justify-center max-w-3xl pt-20 md:pt-28">
+                <motion.div
+                  key={activeTvShow.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4 }}
+                >
+                  <h3 className="text-lg md:text-xl font-medium text-cyan-400 mb-1">
+                    {activeTvShow.genres?.slice(0, 2).join(' • ') || 'TV Series'}
+                  </h3>
+                  <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 tracking-tight drop-shadow-lg leading-tight">
+                    {activeTvShow.title}
+                  </h1>
+                  
+                  <div className="flex flex-wrap items-center gap-4 text-white/90 text-base md:text-lg font-medium drop-shadow-md">
+                    {activeTvShow.rating && (
+                      <div className="flex items-center gap-1.5">
+                        <Star className="fill-amber-400 text-amber-400" size={19} />
+                        <span>{activeTvShow.rating}</span>
+                      </div>
+                    )}
+                    {activeTvShow.contentRating && (
+                      <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-bold border border-white/40 backdrop-blur-sm uppercase">
+                        {activeTvShow.contentRating}
+                      </span>
+                    )}
+                    {activeTvShow.year && <span>{activeTvShow.year}</span>}
+                    {activeTvShow.seasonsCount && (
+                      <span className="bg-cyan-950/80 text-cyan-300 px-2.5 py-0.5 rounded text-xs font-bold border border-cyan-500/40">
+                        {activeTvShow.seasonsCount} {activeTvShow.seasonsCount === 1 ? 'Season' : 'Seasons'}
+                      </span>
+                    )}
+                    {activeTvShow.status && (
+                      <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider">
+                        {activeTvShow.status}
+                      </span>
+                    )}
+                  </div>
+
+                  {activeTvShow.overview && (
+                    <p className="mt-3 text-sm md:text-base text-white/80 line-clamp-2 max-w-2xl font-light drop-shadow">
+                      {activeTvShow.overview}
+                    </p>
+                  )}
+                </motion.div>
+              </div>
+            )}
+
+            {/* TV Shows List Area */}
+            {!selectedTvShow && (
+              <div className={viewMode === 'grid' ? "flex-1 pt-20 overflow-hidden" : "shrink-0 h-[48%] lg:h-[45%] flex flex-col justify-end pb-6"}>
+                <TvShowGrid 
+                  shows={displayedTvShows} 
+                  viewMode={viewMode}
+                  onSelectShow={setSelectedTvShow}
+                  onHoverShow={setHoveredTvShow}
+                />
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Regular Movie Browsing Views (when activeTab !== 'codecs' && activeTab !== 'tv') */}
+        {activeTab !== 'codecs' && activeTab !== 'tv' && (
           <>
             {/* Continue Watching Row (Pulls Incomplete Playback Data from Emby API) */}
             {activeTab === 'home' && !searchQuery && !selectedMovie && continueWatching.length > 0 && (
@@ -631,6 +783,16 @@ export default function App() {
         onPlay={(resumeSeconds) => selectedMovie && handlePlayMovie(selectedMovie, resumeSeconds)} 
       />
 
+      {selectedTvShow && (
+        <TvShowDetails 
+          show={selectedTvShow}
+          settings={settings}
+          isConnected={isConnected}
+          onClose={() => setSelectedTvShow(null)}
+          onPlayEpisode={handlePlayEpisode}
+        />
+      )}
+
       {playingMovie && (
         <VideoPlayer 
           movie={playingMovie} 
@@ -651,6 +813,9 @@ export default function App() {
           setSelectedMovie(null);
         }}
       />
+
+      {/* Living Room TV Remote / Gamepad Navigation Hint Overlay */}
+      <TvRemoteOverlay visible={isTvMode} isPlaying={!!playingMovie} />
     </div>
   );
 }
