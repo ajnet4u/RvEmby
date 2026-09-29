@@ -45,6 +45,7 @@ In this setup, CasaOS hosts the JEmby player as a web app. Any device on your ho
    - Click the **+** (Install a customized app) at the top right.
    - Click **Import** at the top right of the modal window.
    - Paste the contents of `docker-compose.yml` (located in the root of this project).
+   - The volume `/DATA/AppData/RvEmby:/app/data` is automatically mounted, ensuring your Emby connection, API keys, and device sync settings persist permanently across updates and reboots.
    - *(Optional)* In the `environment:` section, fill in `EMBY_URL` and `EMBY_API_KEY` so all devices on your LAN connect automatically without any setup prompts.
    - Click **Submit**.
    - Click **Install**.

@@ -8,6 +8,9 @@ services:
     restart: unless-stopped
     ports:
       - "3000:80"
+    volumes:
+      # Persists JEmby server configuration, API keys, and cache in /DATA/AppData/RvEmby
+      - /DATA/AppData/RvEmby:/app/data
     environment:
       - TZ=UTC
       # Pre-configure your Emby/Jellyfin server so ALL devices on your LAN connect automatically with ZERO prompts
