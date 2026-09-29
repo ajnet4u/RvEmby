@@ -23,3 +23,6 @@ export interface ServerSettings {
   apiKey: string;
   serverType?: 'emby' | 'jellyfin';
 }
+
+export type SortField = 'title' | 'year' | 'rating' | 'default';
+export type SortDirection = 'asc' | 'desc';

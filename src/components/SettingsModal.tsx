@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ServerSettings } from '../types';
 import { X, Server, Key, AlertCircle, CheckCircle2, Loader2, HelpCircle } from 'lucide-react';
 import { testEmbyConnection } from '../api/emby';
@@ -11,30 +11,41 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: SettingsModalProps) {
-  const [url, setUrl] = useState(currentSettings.url);
-  const [apiKey, setApiKey] = useState(currentSettings.apiKey);
+  const [url, setUrl] = useState(currentSettings.url || 'http://192.168.10.146:8096');
+  const [apiKey, setApiKey] = useState(currentSettings.apiKey || '');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Sync state if currentSettings change
+  useEffect(() => {
+    if (currentSettings.url) setUrl(currentSettings.url);
+    if (currentSettings.apiKey) setApiKey(currentSettings.apiKey);
+  }, [currentSettings]);
 
   if (!isOpen) return null;
 
   const handleTest = async () => {
-    if (!url.trim()) {
+    const cleanUrl = url.trim();
+    const cleanKey = apiKey.trim();
+
+    if (!cleanUrl) {
       setTestResult({ success: false, message: 'Please enter a server URL.' });
       return;
     }
-    if (!apiKey.trim()) {
+    if (!cleanKey) {
       setTestResult({ success: false, message: 'Please enter your Emby API key.' });
       return;
     }
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await testEmbyConnection({ url, apiKey });
+      const res = await testEmbyConnection({ url: cleanUrl, apiKey: cleanKey });
       setTestResult({
         success: true,
-        message: `Connected successfully! ${res.serverName} (v${res.version})`
+        message: `Connected successfully to ${res.serverName} (v${res.version})! Settings saved.`
       });
+      // Auto-save immediately upon successful test so user never has to re-type
+      onSave({ url: cleanUrl, apiKey: cleanKey });
     } catch (err: any) {
       setTestResult({
         success: false,
@@ -43,6 +54,14 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: Sett
     } finally {
       setTesting(false);
     }
+  };
+
+  const handleClose = () => {
+    // If the user entered an API key, automatically preserve it
+    if (apiKey.trim()) {
+      onSave({ url: url.trim(), apiKey: apiKey.trim() });
+    }
+    onClose();
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -65,7 +84,7 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: Sett
             </div>
           </div>
           <button 
-            onClick={onClose}
+            onClick={handleClose}
             className="text-zinc-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-zinc-800"
           >
             <X size={22} />
@@ -160,7 +179,7 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: Sett
             <div className="flex gap-2.5">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-5 py-2.5 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors text-xs font-semibold"
               >
                 Cancel
@@ -178,4 +197,5 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave }: Sett
     </div>
   );
 }
+
 

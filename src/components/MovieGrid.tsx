@@ -1,6 +1,21 @@
-import { Movie } from '../types';
-import { motion } from 'motion/react';
-import { Play, ChevronLeft, ChevronRight, LayoutGrid, Rows } from 'lucide-react';
+import { Movie, SortField, SortDirection } from '../types';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  Play, 
+  ChevronLeft, 
+  ChevronRight, 
+  LayoutGrid, 
+  Rows, 
+  ArrowUpDown, 
+  ArrowUp, 
+  ArrowDown, 
+  Check, 
+  Calendar, 
+  Star, 
+  Type, 
+  ChevronDown,
+  Search
+} from 'lucide-react';
 import { useRef, useEffect, useState } from 'react';
 
 interface MovieGridProps {
@@ -10,6 +25,10 @@ interface MovieGridProps {
   onSelect: (movie: Movie) => void;
   viewMode?: 'carousel' | 'grid';
   onToggleViewMode?: () => void;
+  sortField?: SortField;
+  sortDirection?: SortDirection;
+  onSortChange?: (field: SortField, direction: SortDirection) => void;
+  showSortControls?: boolean;
 }
 
 export function MovieGrid({ 
@@ -18,11 +37,63 @@ export function MovieGrid({
   onHover, 
   onSelect,
   viewMode = 'carousel',
-  onToggleViewMode
+  onToggleViewMode,
+  sortField = 'title',
+  sortDirection = 'asc',
+  onSortChange,
+  showSortControls = true
 }: MovieGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
+  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsSortDropdownOpen(false);
+      }
+    }
+    if (isSortDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isSortDropdownOpen]);
+
+  // Handle Sort button click
+  const handleSortClick = (field: SortField) => {
+    if (!onSortChange) return;
+    if (sortField === field) {
+      onSortChange(field, sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      const defaultDir: SortDirection = field === 'title' ? 'asc' : 'desc';
+      onSortChange(field, defaultDir);
+    }
+  };
+
+  const sortOptions: { field: SortField; direction: SortDirection; label: string; icon: any }[] = [
+    { field: 'title', direction: 'asc', label: 'Title: A to Z', icon: Type },
+    { field: 'title', direction: 'desc', label: 'Title: Z to A', icon: Type },
+    { field: 'year', direction: 'desc', label: 'Release Date: Newest First', icon: Calendar },
+    { field: 'year', direction: 'asc', label: 'Release Date: Oldest First', icon: Calendar },
+    { field: 'rating', direction: 'desc', label: 'Rating: Highest First (★)', icon: Star },
+    { field: 'rating', direction: 'asc', label: 'Rating: Lowest First', icon: Star },
+  ];
+
+  const currentSortLabel = () => {
+    if (sortField === 'title') {
+      return sortDirection === 'asc' ? 'Title (A–Z)' : 'Title (Z–A)';
+    }
+    if (sortField === 'year') {
+      return sortDirection === 'desc' ? 'Newest Release' : 'Oldest Release';
+    }
+    if (sortField === 'rating') {
+      return sortDirection === 'desc' ? 'Highest Rating' : 'Lowest Rating';
+    }
+    return 'Default Sort';
+  };
 
   // Check scroll bounds
   const updateScrollButtons = () => {
@@ -55,6 +126,8 @@ export function MovieGrid({
         scroll('right');
       } else if (e.key === 'ArrowLeft') {
         scroll('left');
+      } else if (e.key === 'Escape') {
+        setIsSortDropdownOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -80,8 +153,9 @@ export function MovieGrid({
 
   return (
     <div className="w-full px-8 md:px-12 pb-4 relative group/carousel">
-      {/* Header with Title, Count & View Mode Toggle */}
-      <div className="flex items-center justify-between mb-4">
+      {/* Header with Title, Count, Sort Controls & View Mode Toggle */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        {/* Left: Title & Count */}
         <div className="flex items-center gap-3">
           <h2 className="text-xl md:text-2xl font-bold uppercase tracking-widest text-white/95 drop-shadow-md">
             {title}
@@ -91,29 +165,162 @@ export function MovieGrid({
           </span>
         </div>
 
-        {onToggleViewMode && (
-          <button
-            onClick={onToggleViewMode}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border border-white/20 text-xs font-semibold transition-all backdrop-blur-md"
-            title={viewMode === 'carousel' ? "Switch to Poster Wall Grid" : "Switch to Carousel"}
-          >
-            {viewMode === 'carousel' ? (
-              <>
-                <LayoutGrid size={15} />
-                <span>Wall Grid</span>
-              </>
-            ) : (
-              <>
-                <Rows size={15} />
-                <span>Carousel</span>
-              </>
-            )}
-          </button>
-        )}
+        {/* Right: Sort Controls & View Mode Toggle */}
+        <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+          {showSortControls && onSortChange && (
+            <div className="flex items-center gap-2">
+              {/* Button set for fast 1-click sorting */}
+              <div className="hidden sm:flex items-center bg-white/10 rounded-xl p-0.5 border border-white/15 backdrop-blur-md">
+                {/* Title Sort Button */}
+                <button
+                  onClick={() => handleSortClick('title')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    sortField === 'title' 
+                      ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(6,182,212,0.4)]' 
+                      : 'text-white/70 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={sortField === 'title' ? `Title: ${sortDirection.toUpperCase()} (Click to invert)` : "Sort by Title"}
+                >
+                  <Type size={13} />
+                  <span>Title</span>
+                  {sortField === 'title' && (
+                    sortDirection === 'asc' ? <ArrowUp size={12} strokeWidth={2.5} /> : <ArrowDown size={12} strokeWidth={2.5} />
+                  )}
+                </button>
+
+                {/* Release Date Sort Button */}
+                <button
+                  onClick={() => handleSortClick('year')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    sortField === 'year' 
+                      ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(6,182,212,0.4)]' 
+                      : 'text-white/70 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={sortField === 'year' ? `Release Date: ${sortDirection === 'desc' ? 'Newest' : 'Oldest'} (Click to invert)` : "Sort by Release Date"}
+                >
+                  <Calendar size={13} />
+                  <span>Release Date</span>
+                  {sortField === 'year' && (
+                    sortDirection === 'desc' ? <ArrowDown size={12} strokeWidth={2.5} /> : <ArrowUp size={12} strokeWidth={2.5} />
+                  )}
+                </button>
+
+                {/* Rating Sort Button */}
+                <button
+                  onClick={() => handleSortClick('rating')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    sortField === 'rating' 
+                      ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(6,182,212,0.4)]' 
+                      : 'text-white/70 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={sortField === 'rating' ? `Rating: ${sortDirection === 'desc' ? 'Highest' : 'Lowest'} (Click to invert)` : "Sort by Rating"}
+                >
+                  <Star size={13} className={sortField === 'rating' ? 'fill-black' : ''} />
+                  <span>Rating</span>
+                  {sortField === 'rating' && (
+                    sortDirection === 'desc' ? <ArrowDown size={12} strokeWidth={2.5} /> : <ArrowUp size={12} strokeWidth={2.5} />
+                  )}
+                </button>
+              </div>
+
+              {/* Dropdown Menu for exact sorting options */}
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  onClick={() => setIsSortDropdownOpen(!isSortDropdownOpen)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/90 hover:text-white border border-white/20 text-xs font-semibold transition-all backdrop-blur-md shadow-sm"
+                  title="Open sort options menu"
+                >
+                  <ArrowUpDown size={14} className="text-cyan-400" />
+                  <span className="hidden sm:inline text-white/50 text-[11px] font-normal">Sort:</span>
+                  <span className="text-white">{currentSortLabel()}</span>
+                  <ChevronDown size={14} className={`transition-transform duration-200 ${isSortDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {/* Dropdown Menu Popup */}
+                <AnimatePresence>
+                  {isSortDropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute right-0 top-full mt-2 w-60 rounded-2xl bg-zinc-900/95 border border-zinc-700/80 shadow-[0_15px_35px_rgba(0,0,0,0.8)] p-2 z-50 backdrop-blur-xl"
+                    >
+                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 border-b border-zinc-800/80 mb-1 flex items-center justify-between">
+                        <span>Sort Movies By</span>
+                        <span className="text-cyan-400">{movies.length} items</span>
+                      </div>
+
+                      <div className="space-y-0.5">
+                        {sortOptions.map((opt, i) => {
+                          const isSelected = sortField === opt.field && sortDirection === opt.direction;
+                          const Icon = opt.icon;
+                          return (
+                            <button
+                              key={i}
+                              onClick={() => {
+                                onSortChange(opt.field, opt.direction);
+                                setIsSortDropdownOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all text-left ${
+                                isSelected 
+                                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-semibold' 
+                                  : 'text-zinc-300 hover:text-white hover:bg-white/10'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <Icon size={14} className={isSelected ? 'text-cyan-400' : 'text-zinc-400'} />
+                                <span>{opt.label}</span>
+                              </div>
+                              {isSelected && <Check size={14} className="text-cyan-400" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+          )}
+
+          {/* View Mode Toggle (Wall Grid vs Carousel) */}
+          {onToggleViewMode && (
+            <button
+              onClick={onToggleViewMode}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border border-white/20 text-xs font-semibold transition-all backdrop-blur-md"
+              title={viewMode === 'carousel' ? "Switch to Poster Wall Grid" : "Switch to Carousel"}
+            >
+              {viewMode === 'carousel' ? (
+                <>
+                  <LayoutGrid size={15} />
+                  <span>Wall Grid</span>
+                </>
+              ) : (
+                <>
+                  <Rows size={15} />
+                  <span>Carousel</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Grid Mode (Multi-row scrollable poster wall) */}
-      {viewMode === 'grid' ? (
+
+      {/* Empty State */}
+      {movies.length === 0 ? (
+        <div className="py-14 flex flex-col items-center justify-center text-center px-4">
+          <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 mb-3 shadow-lg">
+            <Search size={24} />
+          </div>
+          <h3 className="text-base font-semibold text-white/90">No movies found</h3>
+          <p className="text-xs text-zinc-400 mt-1 max-w-sm">
+            No titles match your current search or filter criteria. Try searching for a different keyword.
+          </p>
+        </div>
+      ) : viewMode === 'grid' ? (
+        /* Grid Mode (Multi-row scrollable poster wall) */
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4 md:gap-6 overflow-y-auto max-h-[70vh] pr-2 pb-16 custom-scrollbar">
           {movies.map((movie, index) => (
             <motion.div

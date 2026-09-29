@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { Movie, ServerSettings } from './types';
+import { Movie, ServerSettings, SortField, SortDirection } from './types';
 import { MOCK_MOVIES } from './mockData';
 import { fetchEmbyMovies } from './api/emby';
 import { Sidebar, NavTab } from './components/Sidebar';
@@ -13,19 +13,29 @@ import { MovieDetails } from './components/MovieDetails';
 import { VideoPlayer } from './components/VideoPlayer';
 import { SettingsModal } from './components/SettingsModal';
 import { AnimatePresence, motion } from 'motion/react';
-import { Star, EyeOff, Server, AlertCircle, Loader2 } from 'lucide-react';
+import { Star, EyeOff, Server, AlertCircle, Loader2, Search, X } from 'lucide-react';
 
 const STORAGE_KEY = 'rvemby_server_settings';
 const FAVORITES_KEY = 'rvemby_favorites';
+const DISMISSED_KEY = 'rvemby_has_dismissed_setup';
 
 export default function App() {
-  // Load saved settings from localStorage
+  // Load saved settings from localStorage or environment variables (e.g. Docker Compose)
   const [settings, setSettings] = useState<ServerSettings>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.apiKey) return parsed;
+      }
     } catch (e) {
       console.error("Failed to parse saved settings:", e);
+    }
+    // Check environment variables if provided in Docker
+    const envUrl = (import.meta as any).env?.VITE_EMBY_URL;
+    const envKey = (import.meta as any).env?.VITE_EMBY_API_KEY;
+    if (envKey) {
+      return { url: envUrl || 'http://192.168.10.146:8096', apiKey: envKey };
     }
     return { url: 'http://192.168.10.146:8096', apiKey: '' };
   });
@@ -47,10 +57,33 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'carousel' | 'grid'>('carousel');
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
 
+  // Search query state for real-time title filtering
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Sorting state: Title (A-Z), Release Date (Newest/Oldest), Rating (Highest/Lowest)
+  const [sortField, setSortField] = useState<SortField>('title');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [playingMovie, setPlayingMovie] = useState<Movie | null>(null);
   const [hoveredMovie, setHoveredMovie] = useState<Movie | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(() => !settings.apiKey);
+
+  // Only open setup automatically on very first visit if neither saved key nor dismissed flag exists
+  const [isSettingsOpen, setIsSettingsOpen] = useState(() => {
+    if (settings.apiKey) return false;
+    try {
+      return localStorage.getItem(DISMISSED_KEY) !== 'true';
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const handleCloseSettings = () => {
+    setIsSettingsOpen(false);
+    try {
+      localStorage.setItem(DISMISSED_KEY, 'true');
+    } catch (e) {}
+  };
 
   // Fetch movies whenever settings change
   useEffect(() => {
@@ -89,6 +122,7 @@ export default function App() {
     setSettings(newSettings);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+      localStorage.setItem(DISMISSED_KEY, 'true');
     } catch (e) {
       console.error("Failed to save settings:", e);
     }
@@ -105,13 +139,11 @@ export default function App() {
     });
   };
 
-  // Filter & sort movies based on current active tab
+  // Filter & sort movies based on current active tab, search query, and sort parameters
   const displayedMovies = useMemo(() => {
     let result = [...movies];
 
-    if (activeTab === 'recent') {
-      result.sort((a, b) => (b.year || 0) - (a.year || 0));
-    } else if (activeTab === 'favorites') {
+    if (activeTab === 'favorites') {
       result = result.filter(m => favorites.includes(m.id));
     } else if (activeTab === 'collections') {
       if (selectedGenre) {
@@ -119,8 +151,34 @@ export default function App() {
       }
     }
 
+    // Real-time title search filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(m => (m.title || '').toLowerCase().includes(q));
+    }
+
+    // Apply sorting
+    result.sort((a, b) => {
+      let comparison = 0;
+      if (sortField === 'title') {
+        const titleA = (a.title || '').trim().toLowerCase();
+        const titleB = (b.title || '').trim().toLowerCase();
+        comparison = titleA.localeCompare(titleB, undefined, { numeric: true, sensitivity: 'base' });
+      } else if (sortField === 'year') {
+        const yearA = a.year || 0;
+        const yearB = b.year || 0;
+        comparison = yearA - yearB;
+      } else if (sortField === 'rating') {
+        const ratingA = a.rating !== undefined ? a.rating : -1;
+        const ratingB = b.rating !== undefined ? b.rating : -1;
+        comparison = ratingA - ratingB;
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+
     return result;
-  }, [movies, activeTab, favorites, selectedGenre]);
+  }, [movies, activeTab, favorites, selectedGenre, searchQuery, sortField, sortDirection]);
 
   // Extract all unique genres for collections tab
   const allGenres = useMemo(() => {
@@ -143,6 +201,9 @@ export default function App() {
 
   // Title for current view
   const currentTitle = useMemo(() => {
+    if (searchQuery.trim()) {
+      return `Results for "${searchQuery}"`;
+    }
     switch (activeTab) {
       case 'home': return 'Featured Movies';
       case 'movies': return 'All Movies';
@@ -151,7 +212,7 @@ export default function App() {
       case 'favorites': return 'Favorite Movies';
       default: return 'Movies';
     }
-  }, [activeTab, selectedGenre]);
+  }, [activeTab, selectedGenre, searchQuery]);
 
   return (
     <div className="relative w-screen h-screen bg-black overflow-hidden font-sans flex select-none text-white">
@@ -183,8 +244,9 @@ export default function App() {
         activeTab={activeTab}
         onSelectTab={(tab) => {
           setActiveTab(tab);
-          if (tab === 'movies') {
-            // Keep user preference or default to grid when browsing library
+          if (tab === 'recent') {
+            setSortField('year');
+            setSortDirection('desc');
           }
         }}
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -193,8 +255,40 @@ export default function App() {
       />
       
       <div className="flex-1 flex flex-col relative z-10 overflow-hidden">
-        {/* Top Header Bar with Server Status Pill */}
+        {/* Top Header Bar with Real-Time Search & Server Status Pill */}
         <div className="absolute top-6 right-8 z-30 flex items-center gap-3">
+          {/* Real-Time Movie Search Input */}
+          <div className="relative flex items-center">
+            <div className="relative group">
+              <Search 
+                size={14} 
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/50 group-focus-within:text-cyan-400 transition-colors pointer-events-none" 
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setSearchQuery('');
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                placeholder="Search movies by title..."
+                className="w-44 sm:w-60 md:w-72 pl-9 pr-8 py-1.5 rounded-full bg-black/60 hover:bg-black/75 focus:bg-black/90 border border-white/20 focus:border-cyan-400 text-white placeholder-white/40 text-xs transition-all backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-cyan-400/25 shadow-lg"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/50 hover:text-white p-0.5 rounded-full hover:bg-white/10 transition-colors"
+                  title="Clear search (Esc)"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          </div>
+
           {loading && (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-cyan-200 text-xs backdrop-blur-md">
               <Loader2 size={13} className="animate-spin text-cyan-400" />
@@ -222,6 +316,7 @@ export default function App() {
             </button>
           )}
         </div>
+
 
         {/* Collections Genre Filter Bar */}
         {activeTab === 'collections' && (
@@ -313,6 +408,13 @@ export default function App() {
               onSelect={setSelectedMovie} 
               viewMode={viewMode}
               onToggleViewMode={() => setViewMode(prev => prev === 'carousel' ? 'grid' : 'carousel')}
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSortChange={(field, direction) => {
+                setSortField(field);
+                setSortDirection(direction);
+              }}
+              showSortControls={true}
             />
           </div>
         )}
@@ -334,7 +436,7 @@ export default function App() {
 
       <SettingsModal 
         isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
+        onClose={handleCloseSettings} 
         currentSettings={settings}
         onSave={handleSaveSettings}
       />
