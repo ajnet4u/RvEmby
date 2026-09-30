@@ -7,7 +7,9 @@ import {
   buildEmbyStreamUrl,
   reportEmbyPlaybackStart, 
   reportEmbyPlaybackProgress, 
-  reportEmbyPlaybackStopped 
+  reportEmbyPlaybackStopped,
+  fetchPlaybackInfo,
+  getPlaybackMethodFromMediaSource
 } from '../api/emby';
 import { 
   Play, 
@@ -28,7 +30,9 @@ import {
   ArrowLeft,
   FastForward,
   Settings as SettingsIcon,
-  Sun
+  Sun,
+  Monitor,
+  Info
 } from 'lucide-react';
 
 interface VideoPlayerProps {
@@ -145,6 +149,28 @@ export function VideoPlayer({
     }
   });
 
+  // UI Mode: 'cinematic' vs 'hardware' (Sony Blu-ray style OSD)
+  const [uiMode, setUiMode] = useState<'cinematic' | 'hardware'>(() => {
+    try {
+      const saved = localStorage.getItem('jemby_ui_mode');
+      return saved === 'hardware' ? 'hardware' : 'cinematic';
+    } catch {
+      return 'cinematic';
+    }
+  });
+
+  const toggleUiMode = useCallback((newMode?: 'cinematic' | 'hardware') => {
+    setUiMode(prev => {
+      const next = newMode || (prev === 'cinematic' ? 'hardware' : 'cinematic');
+      try {
+        localStorage.setItem('jemby_ui_mode', next);
+      } catch {}
+      setToastMessage(next === 'hardware' ? 'UI Mode: Hardware OSD (Sony BD)' : 'UI Mode: Cinematic HUD');
+      setShowControls(true);
+      return next;
+    });
+  }, []);
+
   // Settings menu state
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
 
@@ -152,6 +178,9 @@ export function VideoPlayer({
   const [showAudioMenu, setShowAudioMenu] = useState(false);
   const [showSubMenu, setShowSubMenu] = useState(false);
   const [selectedAudio, setSelectedAudio] = useState(0);
+
+  // Playback method status: 'Direct Play' (initial), 'DIRECT PLAY', 'DIRECT STREAM', 'TRANSCODE'
+  const [playbackMethod, setPlaybackMethod] = useState('Direct Play');
 
   // Toggle ambient glow and save to localStorage
   const toggleAmbientGlow = useCallback(() => {
@@ -259,6 +288,10 @@ export function VideoPlayer({
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const resetControlsTimer = useCallback(() => {
+    if (uiMode === 'hardware') {
+      // In Hardware OSD mode, auto-hide fade is disabled; user must manually toggle on/off
+      return;
+    }
     setShowControls(true);
     if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
     if (isPlaying) {
@@ -268,7 +301,7 @@ export function VideoPlayer({
         }
       }, 2500); // 2.5 seconds of mouse inactivity
     }
-  }, [isPlaying, showAudioMenu, showSubMenu, showSettingsMenu]);
+  }, [isPlaying, showAudioMenu, showSubMenu, showSettingsMenu, uiMode]);
 
   useEffect(() => {
     resetControlsTimer();
@@ -328,6 +361,81 @@ export function VideoPlayer({
       reportEmbyPlaybackStopped(settings, movie.id, mediaSourceId, playSessionId, cur);
     };
   }, [movie?.id, settings?.apiKey, settings?.url]);
+
+  // Fetch real-time playback info from /PlaybackInfo endpoint on video initialization and stream changes
+  useEffect(() => {
+    if (!movie?.id) return;
+    let isCancelled = false;
+
+    const loadPlaybackInfo = async () => {
+      try {
+        const mediaSourceId = movie.mediaSourceId || movie.id;
+        const primaryAudio = audioTracks[selectedAudio];
+        const subTrack = selectedSub !== null ? subtitleTracks[selectedSub] : undefined;
+
+        const data = await fetchPlaybackInfo(settings, movie.id, {
+          mediaSourceId,
+          audioStreamIndex: primaryAudio?.index,
+          subtitleStreamIndex: subTrack?.index
+        });
+
+        if (isCancelled) return;
+
+        if (isAudioTranscoding) {
+          if (data?.MediaSources && data.MediaSources.length > 0) {
+            const rawMethod = getPlaybackMethodFromMediaSource(data.MediaSources[0]);
+            setPlaybackMethod(rawMethod.includes('TRANSCODE') ? rawMethod : 'DIRECT STREAM');
+          } else {
+            setPlaybackMethod('DIRECT STREAM');
+          }
+        } else if (data?.MediaSources && data.MediaSources.length > 0) {
+          const method = getPlaybackMethodFromMediaSource(data.MediaSources[0]);
+          setPlaybackMethod(method);
+        } else if (movie.mediaSources && movie.mediaSources.length > 0) {
+          const method = getPlaybackMethodFromMediaSource(movie.mediaSources[0]);
+          setPlaybackMethod(method);
+        } else {
+          setPlaybackMethod('DIRECT PLAY');
+        }
+      } catch {
+        if (isCancelled) return;
+        if (isAudioTranscoding) {
+          setPlaybackMethod('DIRECT STREAM');
+        } else {
+          setPlaybackMethod('DIRECT PLAY');
+        }
+      }
+    };
+
+    loadPlaybackInfo();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [movie?.id, movie?.mediaSourceId, movie?.mediaSources, settings, selectedAudio, selectedSub, isAudioTranscoding]);
+
+  // Dynamic CSS styling for Hardware LED Playback Status Badge (DIRECT PLAY vs DIRECT STREAM vs TRANSCODE)
+  const getPlaybackBadgeStyle = (method: string): React.CSSProperties => {
+    const m = (method || '').toUpperCase();
+    let color = '#00FF00'; // DIRECT PLAY: bright glowing green
+    let glow = 'rgba(0, 255, 0, 0.45)';
+
+    if (m.includes('DIRECT STREAM')) {
+      color = '#FFBF00'; // DIRECT STREAM: warning yellow/amber
+      glow = 'rgba(255, 191, 0, 0.45)';
+    } else if (m.includes('TRANSCODE')) {
+      color = '#FF0000'; // TRANSCODE: stark red
+      glow = 'rgba(255, 0, 0, 0.45)';
+    }
+
+    return {
+      border: `1px solid ${color}`,
+      color: color,
+      backgroundColor: 'transparent',
+      boxShadow: `0 0 6px ${glow}`,
+      textShadow: `0 0 4px ${glow}`
+    };
+  };
 
   // Load stream via HLS.js if .m3u8, or native HTML5 video otherwise
   useEffect(() => {
@@ -392,46 +500,59 @@ export function VideoPlayer({
   // Unified audio stream switcher with HLS seeking support & mediaSourceId
   const applyAudioSettings = (trackIndex: number, forceTranscode?: boolean) => {
     const track = audioTracks[trackIndex];
-    if (!track || !movie || !videoRef.current) return;
-
-    const currentPos = videoRef.current.currentTime;
     const shouldTranscode = forceTranscode !== undefined 
       ? forceTranscode 
-      : (track.codec ? !isAudioCodecSupported(track.codec) : true);
+      : (track?.codec ? !isAudioCodecSupported(track.codec) : true);
 
+    // Guarantee state updates immediately
+    setIsAudioTranscoding(shouldTranscode);
+
+    if (!movie) return;
+
+    const currentPos = videoRef.current ? videoRef.current.currentTime : 0;
     const mediaSourceId = movie.mediaSourceId || movie.id;
+    const cleanUrl = settings?.url ? settings.url.replace(/\/$/, '') : '';
 
-    if (shouldTranscode && settings?.url && settings?.apiKey) {
-      // Use HLS for smooth seeking & audio transcode
-      const hlsUrl = buildEmbyHlsStreamUrl(settings.url, movie.id, settings.apiKey, {
-        mediaSourceId,
-        audioStreamIndex: track.index,
-        channels: 2,
-        playSessionId
-      });
-      setActiveVideoUrl(hlsUrl);
-      setIsAudioTranscoding(true);
-      showToast(`Audio: ${track.lang} (${track.format}) • AAC Stereo (HLS)`);
-    } else if (settings?.url && settings?.apiKey) {
-      // Direct stream MP4
-      const directUrl = buildEmbyStreamUrl(settings.url, movie.id, settings.apiKey, {
-        mediaSourceId,
-        audioStreamIndex: track.index,
-        forceTranscodeAudio: false
-      });
-      setActiveVideoUrl(directUrl);
-      setIsAudioTranscoding(false);
-      showToast(`Audio: ${track.lang} (${track.format}) • Direct Stream`);
+    if (shouldTranscode) {
+      if (cleanUrl && settings?.apiKey) {
+        // Use HLS for smooth seeking & audio transcode
+        const hlsUrl = buildEmbyHlsStreamUrl(cleanUrl, movie.id, settings.apiKey, {
+          mediaSourceId,
+          audioStreamIndex: track?.index,
+          channels: 2,
+          playSessionId
+        });
+        setActiveVideoUrl(hlsUrl);
+      } else if (movie.videoUrl) {
+        const sep = movie.videoUrl.includes('?') ? '&' : '?';
+        setActiveVideoUrl(`${movie.videoUrl}${sep}AudioCodec=aac&TranscodingMaxAudioChannels=2`);
+      }
+      showToast(track ? `Audio: ${track.lang} (${track.format}) • AAC Stereo Transcode` : 'AAC Audio Transcoding ON');
+    } else {
+      if (cleanUrl && settings?.apiKey) {
+        // Direct stream MP4
+        const directUrl = buildEmbyStreamUrl(cleanUrl, movie.id, settings.apiKey, {
+          mediaSourceId,
+          audioStreamIndex: track?.index,
+          forceTranscodeAudio: false
+        });
+        setActiveVideoUrl(directUrl);
+      } else if (movie.videoUrl) {
+        setActiveVideoUrl(movie.videoUrl);
+      }
+      showToast(track ? `Audio: ${track.lang} (${track.format}) • Direct Stream` : 'Direct Play Restored');
     }
 
-    setTimeout(() => {
-      if (videoRef.current && currentPos > 0) {
-        try {
-          videoRef.current.currentTime = currentPos;
-          videoRef.current.play().catch(() => {});
-        } catch (e) {}
-      }
-    }, 150);
+    if (videoRef.current && currentPos > 0) {
+      setTimeout(() => {
+        if (videoRef.current) {
+          try {
+            videoRef.current.currentTime = currentPos;
+            videoRef.current.play().catch(() => {});
+          } catch (e) {}
+        }
+      }, 150);
+    }
   };
 
   const switchAudioTrack = (index: number) => {
@@ -443,6 +564,7 @@ export function VideoPlayer({
   // Toggle Force Audio Transcoding (useful if browser plays video but has no sound)
   const toggleAudioTranscode = () => {
     const newTranscodeState = !isAudioTranscoding;
+    setIsAudioTranscoding(newTranscodeState);
     applyAudioSettings(selectedAudio, newTranscodeState);
     showToast(newTranscodeState ? 'Forced AAC Audio Transcode ON' : 'Direct Play Audio Restored');
   };
@@ -457,7 +579,24 @@ export function VideoPlayer({
   };
 
   const activeSubTrack = selectedSub !== null && subtitleTracks[selectedSub] ? subtitleTracks[selectedSub] : null;
-  const activeSubUrl = activeSubTrack?.url || null;
+
+  // Build the WebVTT subtitle stream URL: /Videos/{ItemId}/{MediaSourceId}/Subtitles/{SubtitleStreamIndex}/Stream.vtt
+  // Ensures HTML5 <video> receives WebVTT (.vtt) format as required by the browser rather than failing raw .srt
+  const activeSubUrl = useMemo(() => {
+    if (!activeSubTrack || !movie) return null;
+    const mediaSourceId = movie.mediaSourceId || movie.id;
+    const streamIndex = activeSubTrack.index !== undefined ? activeSubTrack.index : selectedSub;
+    if (settings?.url && settings?.apiKey) {
+      const baseUrl = settings.url.replace(/\/$/, '');
+      return `${baseUrl}/Videos/${movie.id}/${mediaSourceId}/Subtitles/${streamIndex}/Stream.vtt?api_key=${encodeURIComponent(settings.apiKey)}`;
+    }
+    if (activeSubTrack.url) {
+      return activeSubTrack.url
+        .replace(/\/Subtitles\/(\d+)\/\d+\/Stream\.vtt/i, '/Subtitles/$1/Stream.vtt')
+        .replace(/\/Subtitles\/(\d+)\/Stream\.(?:srt|sub|ass)/i, '/Subtitles/$1/Stream.vtt');
+    }
+    return null;
+  }, [activeSubTrack, movie, selectedSub, settings]);
 
   // Load Subtitle Cues whenever selected subtitle changes
   useEffect(() => {
@@ -778,7 +917,14 @@ export function VideoPlayer({
           break;
         case 'i':
         case 'I':
+        case 'd':
+        case 'D':
+          // Toggle Display/Info (OSD in Hardware mode, Controls in Cinematic mode)
           setShowControls(prev => !prev);
+          break;
+        case 'o':
+        case 'O':
+          toggleUiMode();
           break;
         case 'm':
         case 'M':
@@ -814,7 +960,7 @@ export function VideoPlayer({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [volume, isMuted, duration, isPlaying, isCreditsSkipping, toggleAmbientGlow, handleCancelCredits, handleClosePlayer, resetControlsTimer]);
+  }, [volume, isMuted, duration, isPlaying, isCreditsSkipping, toggleAmbientGlow, toggleUiMode, handleCancelCredits, handleClosePlayer, resetControlsTimer]);
 
   if (!movie || !movie.videoUrl) return null;
 
@@ -878,7 +1024,19 @@ export function VideoPlayer({
           }}
           className="relative z-10 w-full h-full object-contain pointer-events-auto"
           crossOrigin="anonymous"
-        />
+        >
+          {/* Dynamically Injected WebVTT Subtitle Track */}
+          {activeSubTrack && activeSubUrl && (
+            <track
+              key={`track-${activeSubTrack.id || selectedSub}-${activeSubUrl}`}
+              kind="subtitles"
+              src={activeSubUrl}
+              srcLang={activeSubTrack.code || activeSubTrack.lang?.toLowerCase() || 'en'}
+              label={activeSubTrack.label}
+              default
+            />
+          )}
+        </video>
 
         {/* Shrunk Mini-Player Hover Hint to Watch Credits */}
         {isCreditsSkipping && nextMovie && (
@@ -1041,25 +1199,27 @@ export function VideoPlayer({
         </div>
       </div>
 
-      {/* Subtle Black Gradient Overlay at the bottom (fading to transparent halfway up) */}
-      <div 
-        className={`pointer-events-none absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/90 via-black/35 to-transparent transition-opacity duration-[400ms] ease-in-out z-10 ${
-          showControls && !isCreditsSkipping ? 'opacity-100' : 'opacity-0'
-        }`} 
-      />
-
-      {/* Subtle Top Ambient Gradient */}
-      <div 
-        className={`pointer-events-none absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black/80 via-black/25 to-transparent transition-opacity duration-[400ms] ease-in-out z-10 ${
-          showControls && !isCreditsSkipping ? 'opacity-100' : 'opacity-0'
-        }`} 
-      />
+      {/* Subtle Black Gradient Overlay at the bottom (only in cinematic mode) */}
+      {uiMode === 'cinematic' && (
+        <>
+          <div 
+            className={`pointer-events-none absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/90 via-black/35 to-transparent transition-opacity duration-[400ms] ease-in-out z-10 ${
+              showControls && !isCreditsSkipping ? 'opacity-100' : 'opacity-0'
+            }`} 
+          />
+          <div 
+            className={`pointer-events-none absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black/80 via-black/25 to-transparent transition-opacity duration-[400ms] ease-in-out z-10 ${
+              showControls && !isCreditsSkipping ? 'opacity-100' : 'opacity-0'
+            }`} 
+          />
+        </>
+      )}
 
       {/* High-Visibility Cinema Subtitles Overlay */}
       {activeSubtitleText && !isCreditsSkipping && (
         <div 
           className={`absolute left-0 right-0 flex justify-center pointer-events-none z-40 px-6 transition-all duration-300 ${
-            showControls ? 'bottom-28 md:bottom-32' : 'bottom-10 md:bottom-14'
+            showControls ? (uiMode === 'hardware' ? 'bottom-36 md:bottom-40' : 'bottom-28 md:bottom-32') : 'bottom-10 md:bottom-14'
           }`}
         >
           <div className="max-w-4xl text-center">
@@ -1077,10 +1237,11 @@ export function VideoPlayer({
         </div>
       )}
 
-      {/* Cinema HUD Overlay with Smooth 0.4s In-Out Transition */}
-      <div className={`absolute inset-0 flex flex-col justify-between transition-opacity duration-[400ms] ease-in-out pointer-events-none z-20 ${
-        showControls && !isCreditsSkipping ? 'opacity-100' : 'opacity-0'
-      }`}>
+      {/* Cinema HUD Overlay with Smooth 0.4s In-Out Transition (Cinematic Mode) */}
+      {uiMode === 'cinematic' && (
+        <div className={`absolute inset-0 flex flex-col justify-between transition-opacity duration-[400ms] ease-in-out pointer-events-none z-20 ${
+          showControls && !isCreditsSkipping ? 'opacity-100' : 'opacity-0'
+        }`}>
         
         {/* Top Header Bar */}
         <div className="w-full pt-6 pb-4 px-8 md:px-12 flex items-start justify-between pointer-events-auto">
@@ -1497,6 +1658,52 @@ export function VideoPlayer({
                         </button>
                       </div>
 
+                      {/* UI Display Mode (Cinematic HUD vs. Hardware OSD) */}
+                      <div className="mt-2.5 p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-[#FFFFFF]">
+                            <Monitor size={13} className="text-sky-300" />
+                            <span>UI Mode</span>
+                          </div>
+                          <span className="font-mono text-[9px] uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/80">
+                            {uiMode === 'hardware' ? 'Hardware OSD' : 'Cinematic'}
+                          </span>
+                        </div>
+
+                        {/* Segmented Pill Selector */}
+                        <div className="grid grid-cols-2 gap-1 p-0.5 bg-black/60 rounded-lg border border-white/10">
+                          <button
+                            type="button"
+                            data-tv-focus="true"
+                            onClick={() => toggleUiMode('cinematic')}
+                            className={`py-1 text-center text-xs font-medium rounded-md transition-all cursor-pointer ${
+                              uiMode === 'cinematic' 
+                                ? 'bg-white text-black font-semibold shadow-sm' 
+                                : 'text-[#9E9E9E] hover:text-white'
+                            }`}
+                          >
+                            Cinematic
+                          </button>
+                          <button
+                            type="button"
+                            data-tv-focus="true"
+                            onClick={() => toggleUiMode('hardware')}
+                            className={`py-1 text-center text-xs font-medium rounded-md transition-all cursor-pointer ${
+                              uiMode === 'hardware' 
+                                ? 'bg-white text-black font-semibold shadow-sm' 
+                                : 'text-[#9E9E9E] hover:text-white'
+                            }`}
+                          >
+                            Hardware OSD
+                          </button>
+                        </div>
+                        <div className="text-[10px] text-[#9E9E9E] leading-tight">
+                          {uiMode === 'hardware' 
+                            ? 'Sony Blu-ray style technical display. Toggle with Key: I.' 
+                            : 'Floating glassmorphic controls with auto-hide.'}
+                        </div>
+                      </div>
+
                       {/* Audio Transcode Toggle */}
                       <div className="mt-2.5 pt-2 border-t border-white/[0.08]">
                         <button
@@ -1535,6 +1742,7 @@ export function VideoPlayer({
                 <span><kbd className="text-[#FFFFFF] font-mono">← / →</kbd> Seek 10s</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">↑ / ↓</kbd> Volume</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">M</kbd> Mute</span>
+                <span><kbd className="text-[#FFFFFF] font-mono">I</kbd> OSD</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">G</kbd> Glow</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">F</kbd> Fullscreen</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">Esc</kbd> Return</span>
@@ -1546,6 +1754,367 @@ export function VideoPlayer({
         </div>
 
       </div>
+      )}
+
+      {/* Hardware OSD UI (Sony Blu-ray style) */}
+      {uiMode === 'hardware' && (
+        <>
+          {/* Discreet Technical Tag when OSD is hidden */}
+          {!showControls && !isCreditsSkipping && (
+            <button
+              onClick={() => setShowControls(true)}
+              className="fixed bottom-4 right-6 z-30 px-3 py-1 bg-[#121212] border border-[#555555] text-white text-[11px] font-mono tracking-wider shadow-lg hover:bg-white hover:text-black cursor-pointer transition-colors"
+              title="Show Hardware OSD (Press 'I')"
+            >
+              [ DISPLAY: INFO (I) ]
+            </button>
+          )}
+
+          {/* The Main Hardware OSD Box */}
+          {showControls && !isCreditsSkipping && (
+            <div 
+              className="fixed bottom-3 sm:bottom-4 left-3 right-3 sm:left-6 sm:right-6 md:left-8 md:right-8 z-30 pointer-events-auto bg-[#101010]/95 border-2 border-[#383838] shadow-[0_16px_50px_rgba(0,0,0,0.98)] p-3 sm:p-4 text-white font-['Arial',sans-serif] select-none rounded-none"
+              style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }} // Strictly solid semi-transparent, no blur or glassmorphism
+            >
+              {/* Dropdowns in Hardware Mode */}
+              {/* Hardware Audio Dropdown */}
+              {showAudioMenu && (
+                <div className="absolute right-12 bottom-full mb-3 w-64 bg-[#141414] border-2 border-[#555] shadow-2xl p-2 z-50 font-mono text-xs">
+                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#9E9E9E] border-b border-[#333] mb-1 flex items-center justify-between">
+                    <span>Audio Streams</span>
+                    <span className="text-[9px]">Select</span>
+                  </div>
+                  <div className="space-y-0.5 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
+                    {audioTracks.map((track, i) => {
+                      const isDirectCompatible = track.codec ? isAudioCodecSupported(track.codec) : true;
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => {
+                            switchAudioTrack(i);
+                            setShowAudioMenu(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-left cursor-pointer border ${
+                            selectedAudio === i 
+                              ? 'bg-white text-black font-bold border-white' 
+                              : 'text-[#E0E0E0] hover:bg-[#252525] border-transparent'
+                          }`}
+                        >
+                          <div>
+                            <div>{track.lang} - {track.format}</div>
+                            <div className="text-[10px] opacity-75">{track.channels ? `${track.channels} Channels` : 'Stereo'}</div>
+                          </div>
+                          <div className="text-[9px] font-bold">
+                            {isDirectCompatible && !isAudioTranscoding ? 'DIRECT' : 'AAC'}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Hardware Subtitles Dropdown */}
+              {showSubMenu && (
+                <div className="absolute right-8 bottom-full mb-3 w-64 bg-[#141414] border-2 border-[#555] shadow-2xl p-2 z-50 font-mono text-xs">
+                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#9E9E9E] border-b border-[#333] mb-1 flex items-center justify-between">
+                    <span>Subtitles</span>
+                    <span className="text-[9px]">Select</span>
+                  </div>
+                  <div className="space-y-0.5 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
+                    <button
+                      onClick={() => {
+                        setSelectedSub(null);
+                        setShowSubMenu(false);
+                        showToast('Subtitles: Off');
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-left cursor-pointer border ${
+                        selectedSub === null 
+                          ? 'bg-white text-black font-bold border-white' 
+                          : 'text-[#E0E0E0] hover:bg-[#252525] border-transparent'
+                      }`}
+                    >
+                      <span>Off</span>
+                      {selectedSub === null && <Check size={14} />}
+                    </button>
+
+                    {subtitleTracks.map((track, i) => {
+                      const isSubActive = selectedSub === i;
+                      return (
+                        <button
+                          key={track.id || i}
+                          onClick={() => {
+                            setSelectedSub(i);
+                            setShowSubMenu(false);
+                            showToast(`Subtitles: ${track.label}`);
+                          }}
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-left cursor-pointer border ${
+                            isSubActive 
+                              ? 'bg-white text-black font-bold border-white' 
+                              : 'text-[#E0E0E0] hover:bg-[#252525] border-transparent'
+                          }`}
+                        >
+                          <span className="truncate pr-2">{track.label}</span>
+                          {isSubActive && <Check size={14} className="shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Hardware Settings Dropdown */}
+              {showSettingsMenu && (
+                <div className="absolute right-4 bottom-full mb-3 w-72 bg-[#141414] border-2 border-[#555] shadow-2xl p-3 z-50 font-mono text-xs text-white">
+                  <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-[#9E9E9E] border-b border-[#333] mb-2.5 flex items-center justify-between">
+                    <span>Player Settings</span>
+                    <span className="text-[9px] text-[#888]">Sony BD OSD</span>
+                  </div>
+
+                  {/* UI Mode Toggle */}
+                  <div className="p-2 bg-[#1c1c1c] border border-[#333] flex flex-col gap-1.5 mb-2">
+                    <div className="flex items-center justify-between text-xs font-bold">
+                      <span>INTERFACE STYLE</span>
+                      <span className="text-[10px] text-amber-400">HARDWARE OSD</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 pt-1">
+                      <button
+                        onClick={() => toggleUiMode('cinematic')}
+                        className="py-1 text-center text-xs font-mono bg-[#282828] hover:bg-[#383838] text-neutral-300 border border-[#444] cursor-pointer"
+                      >
+                        CINEMATIC
+                      </button>
+                      <button
+                        onClick={() => toggleUiMode('hardware')}
+                        className="py-1 text-center text-xs font-mono bg-white text-black font-bold border border-white cursor-pointer"
+                      >
+                        HARDWARE
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Ambient Glow Toggle */}
+                  <div className="p-2 bg-[#1c1c1c] border border-[#333] flex items-center justify-between mb-2">
+                    <div>
+                      <div className="font-bold text-xs">AMBIENT GLOW</div>
+                      <div className="text-[10px] text-[#888]">Edge backlighting</div>
+                    </div>
+                    <button
+                      onClick={toggleAmbientGlow}
+                      className={`px-2 py-0.5 font-mono text-xs font-bold border cursor-pointer ${
+                        isAmbientGlowEnabled ? 'bg-white text-black border-white' : 'bg-transparent text-neutral-400 border-[#555]'
+                      }`}
+                    >
+                      {isAmbientGlowEnabled ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+
+                  {/* Force AAC Audio Transcode */}
+                  <div className="p-2 bg-[#1c1c1c] border border-[#333] flex items-center justify-between">
+                    <div>
+                      <div className="font-bold text-xs">AAC TRANSCODE</div>
+                      <div className="text-[10px] text-[#888]">Stereo downmix</div>
+                    </div>
+                    <button
+                      onClick={toggleAudioTranscode}
+                      className={`px-2 py-0.5 font-mono text-xs font-bold border cursor-pointer ${
+                        isAudioTranscoding ? 'bg-white text-black border-white' : 'bg-transparent text-neutral-400 border-[#555]'
+                      }`}
+                    >
+                      {isAudioTranscoding ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Top Row: Currently playing Title on the left, Playback Status Badge & Clock on right */}
+              <div className="flex items-center justify-between pb-2.5 border-b border-[#2d2d2d] gap-3 sm:gap-4">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="shrink-0 px-2 py-0.5 bg-black border border-[#555] font-mono text-[10px] font-bold text-white tracking-widest uppercase">
+                    BD-ROM
+                  </span>
+                  <span className="shrink-0 text-emerald-400 font-mono text-xs font-bold tracking-wider">
+                    {isPlaying ? 'PLAY ▶' : 'PAUSE ❚❚'}
+                  </span>
+                  <h2 className="text-sm sm:text-base md:text-lg font-bold text-white tracking-wide truncate uppercase font-['Arial',sans-serif]">
+                    {movie.seriesName ? `${movie.seriesName} - ${movie.title}` : movie.title}
+                  </h2>
+                </div>
+
+                <div className="shrink-0 flex items-center gap-2 sm:gap-2.5 text-xs font-mono text-[#D4D4D4]">
+                  {/* Real-time Hardware LED Playback Status Badge (Direct Play vs Transcode) */}
+                  <div
+                    className="px-2 py-0.5 sm:px-2.5 sm:py-0.5 text-[10px] sm:text-xs font-mono font-bold tracking-wider uppercase select-none whitespace-nowrap transition-all duration-200"
+                    style={getPlaybackBadgeStyle(playbackMethod)}
+                    title={`Playback Method: ${playbackMethod}`}
+                  >
+                    {playbackMethod.toUpperCase()}
+                  </div>
+
+                  <span className="hidden sm:inline text-[#888888]">SYS:</span>
+                  <span className="text-white font-bold tracking-wider">{clockString}</span>
+                  <button
+                    onClick={() => setShowControls(false)}
+                    className="px-2 py-0.5 bg-[#222222] hover:bg-[#333333] border border-[#555555] text-[10px] text-white font-mono cursor-pointer transition-colors"
+                    title="Hide OSD (Key: I)"
+                  >
+                    [ HIDE (I) ]
+                  </button>
+                  <button
+                    onClick={handleClosePlayer}
+                    className="px-2 py-0.5 bg-[#222222] hover:bg-red-950 border border-[#555555] text-[10px] text-white font-mono cursor-pointer transition-colors"
+                    title="Close player (ESC)"
+                  >
+                    [ EXIT ]
+                  </button>
+                </div>
+              </div>
+
+              {/* Middle Row: Thick, solid, non-expanding progress bar with exact elapsed & remaining time */}
+              <div className="py-3 flex items-center gap-3 sm:gap-4">
+                {/* Time Elapsed */}
+                <span className="font-mono font-bold text-xs sm:text-sm text-white tracking-wider tabular-nums shrink-0">
+                  {formatTime(currentTime)}
+                </span>
+
+                {/* Thick Solid Progress Bar */}
+                <div 
+                  ref={timelineRef}
+                  onClick={handleTimelineClick}
+                  className="flex-1 h-3 sm:h-3.5 bg-[#222222] border border-[#444444] relative cursor-pointer"
+                >
+                  <div 
+                    className="h-full bg-[#FFD700]" // Stark bright yellow classic Sony Blu-ray bar
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                  {/* Credits / Outro Marker */}
+                  {duration > 15 && movie?.creditsStartTime && (
+                    <div 
+                      className="absolute top-0 bottom-0 w-[2px] bg-red-500 pointer-events-none"
+                      style={{ left: `${(movie.creditsStartTime / duration) * 100}%` }}
+                      title="Credits Start"
+                    />
+                  )}
+                </div>
+
+                {/* Time Remaining */}
+                <span className="font-mono font-bold text-xs sm:text-sm text-white tracking-wider tabular-nums shrink-0">
+                  -{formatTime(remainingTime)}
+                </span>
+              </div>
+
+              {/* Bottom Row: Raw media technical data in small text blocks */}
+              <div className="pt-2.5 border-t border-[#2d2d2d] flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Video Codec and Resolution Block */}
+                  <div className="px-2.5 py-1 bg-[#1c1c1c] border border-[#3a3a3a] flex items-center gap-1.5">
+                    <span className="text-[#888888] font-mono text-[10px] font-bold uppercase">VIDEO</span>
+                    <span className="font-mono font-bold text-white text-xs tracking-tight">
+                      {movie.resolutionBadge || '1080p'} {movie.videoCodec || 'HEVC'} {movie.hdrBadge ? `[${movie.hdrBadge}]` : ''}
+                    </span>
+                  </div>
+
+                  {/* Audio Codec Block */}
+                  <div className="px-2.5 py-1 bg-[#1c1c1c] border border-[#3a3a3a] flex items-center gap-1.5">
+                    <span className="text-[#888888] font-mono text-[10px] font-bold uppercase">AUDIO</span>
+                    <span className="font-mono font-bold text-white text-xs tracking-tight">
+                      {audioTracks[selectedAudio] 
+                        ? `${audioTracks[selectedAudio].format || 'Dolby Digital'} ${
+                            audioTracks[selectedAudio].channels === 6 || audioTracks[selectedAudio].channels === 5 
+                              ? '5.1' 
+                              : audioTracks[selectedAudio].channels === 8 
+                                ? '7.1' 
+                                : audioTracks[selectedAudio].channels === 2 
+                                  ? '2.0' 
+                                  : audioTracks[selectedAudio].channels 
+                                    ? `${audioTracks[selectedAudio].channels}CH` 
+                                    : '5.1'
+                          }`
+                        : 'Dolby Digital 5.1'}
+                    </span>
+                  </div>
+
+                  {/* Subtitle Track Block */}
+                  <div className="px-2.5 py-1 bg-[#1c1c1c] border border-[#3a3a3a] flex items-center gap-1.5">
+                    <span className="text-[#888888] font-mono text-[10px] font-bold uppercase">SUBTITLE</span>
+                    <span className="font-mono font-bold text-white text-xs tracking-tight">
+                      {activeSubTrack ? `${activeSubTrack.label || activeSubTrack.lang || 'English'}` : 'OFF'}
+                    </span>
+                  </div>
+
+                  {/* Stream Engine */}
+                  <div className="hidden lg:flex px-2.5 py-1 bg-[#1c1c1c] border border-[#3a3a3a] items-center gap-1.5">
+                    <span className="text-[#888888] font-mono text-[10px] font-bold uppercase">ENGINE</span>
+                    <span className="font-mono font-bold text-neutral-300 text-xs">
+                      {playbackMethod.toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Interactive Navigation & Quick Settings in Hardware Bar */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={togglePlay}
+                    className="px-2.5 py-1 bg-[#262626] hover:bg-[#333333] border border-[#555555] font-mono text-xs font-bold text-white cursor-pointer active:scale-95"
+                  >
+                    {isPlaying ? 'PAUSE' : 'PLAY'}
+                  </button>
+
+                  {/* Audio menu trigger */}
+                  <button
+                    onClick={() => {
+                      setShowAudioMenu(!showAudioMenu);
+                      setShowSubMenu(false);
+                      setShowSettingsMenu(false);
+                    }}
+                    className={`px-2.5 py-1 border font-mono text-xs font-bold cursor-pointer transition-colors ${
+                      showAudioMenu ? 'bg-white text-black border-white' : 'bg-[#262626] hover:bg-[#333333] text-white border-[#555555]'
+                    }`}
+                  >
+                    AUDIO
+                  </button>
+
+                  {/* Subtitles menu trigger */}
+                  <button
+                    onClick={() => {
+                      setShowSubMenu(!showSubMenu);
+                      setShowAudioMenu(false);
+                      setShowSettingsMenu(false);
+                    }}
+                    className={`px-2.5 py-1 border font-mono text-xs font-bold cursor-pointer transition-colors ${
+                      showSubMenu || selectedSub !== null ? 'bg-white text-black border-white' : 'bg-[#262626] hover:bg-[#333333] text-white border-[#555555]'
+                    }`}
+                  >
+                    SUB
+                  </button>
+
+                  {/* Player Settings menu trigger */}
+                  <button
+                    onClick={() => {
+                      setShowSettingsMenu(!showSettingsMenu);
+                      setShowAudioMenu(false);
+                      setShowSubMenu(false);
+                    }}
+                    className={`px-2.5 py-1 border font-mono text-xs font-bold cursor-pointer transition-colors ${
+                      showSettingsMenu ? 'bg-white text-black border-white' : 'bg-[#262626] hover:bg-[#333333] text-white border-[#555555]'
+                    }`}
+                  >
+                    SETTINGS
+                  </button>
+
+                  {/* Fullscreen */}
+                  <button
+                    onClick={toggleFullscreen}
+                    className="px-2.5 py-1 bg-[#262626] hover:bg-[#333333] border border-[#555555] font-mono text-xs font-bold text-white cursor-pointer"
+                  >
+                    {isFullscreen ? 'WIN' : 'FULL'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

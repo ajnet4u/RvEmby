@@ -41,12 +41,15 @@ export interface Movie {
   cast?: string[];
   resolutionBadge?: string;
   hdrBadge?: string;
+  videoCodec?: string;
   audioTracks?: AudioTrackInfo[];
   subtitles?: string[];
   subtitleTracks?: SubtitleTrack[];
   playbackPositionSeconds?: number;
   playbackPercentage?: number;
   lastWatchedAt?: number;
+  playMethod?: string;
+  mediaSources?: any[];
 }
 
 export interface TvShow {
@@ -106,6 +109,7 @@ export interface Episode {
 export interface ServerSettings {
   url: string;
   apiKey: string;
+  userId?: string;
   serverType?: 'emby' | 'jellyfin';
 }
 

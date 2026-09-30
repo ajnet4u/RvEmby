@@ -390,8 +390,8 @@ export function mapEmbyItemToMovie(item: any, baseUrl: string, settings: ServerS
       label += ' (Bitmap)';
     }
     
-    // Official Emby endpoint: /Videos/{Id}/{MediaSourceId}/Subtitles/{Index}/0/Stream.vtt
-    const vttUrl = `${baseUrl}/Videos/${item.Id}/${mediaSourceId}/Subtitles/${streamIndex}/0/Stream.vtt?api_key=${encodeURIComponent(settings.apiKey)}`;
+    // Emby / Jellyfin WebVTT endpoint format: /Videos/{ItemId}/{MediaSourceId}/Subtitles/{SubtitleStreamIndex}/Stream.vtt
+    const vttUrl = `${baseUrl}/Videos/${item.Id}/${mediaSourceId}/Subtitles/${streamIndex}/Stream.vtt?api_key=${encodeURIComponent(settings.apiKey)}`;
     
     return {
       id: `sub-${item.Id}-${streamIndex}`,
@@ -454,6 +454,7 @@ export function mapEmbyItemToMovie(item: any, baseUrl: string, settings: ServerS
     cast: cast && cast.length > 0 ? cast : undefined,
     resolutionBadge,
     hdrBadge,
+    videoCodec: videoStream?.Codec ? videoStream.Codec.toUpperCase() : 'HEVC',
     audioTracks: audioTracks.length > 0 ? audioTracks : undefined,
     subtitles: subtitleLabels.length > 0 ? subtitleLabels : undefined,
     subtitleTracks: subtitleTracks.length > 0 ? subtitleTracks : undefined,
@@ -464,7 +465,9 @@ export function mapEmbyItemToMovie(item: any, baseUrl: string, settings: ServerS
     episodeNumber: item.IndexNumber !== undefined ? item.IndexNumber : undefined,
     playbackPositionSeconds,
     playbackPercentage,
-    lastWatchedAt: item.UserData?.LastPlayedDate ? new Date(item.UserData.LastPlayedDate).getTime() : undefined
+    lastWatchedAt: item.UserData?.LastPlayedDate ? new Date(item.UserData.LastPlayedDate).getTime() : undefined,
+    mediaSources: item.MediaSources || undefined,
+    playMethod: item.MediaSources?.[0]?.PlayMethod || undefined
   };
 }
 
@@ -812,14 +815,17 @@ export async function fetchEmbyEpisodes(
 
       const subtitleTracks: SubtitleTrack[] = subtitleStreams.map((s: any, idx: number) => {
         const streamIndex = s.Index !== undefined ? s.Index : idx;
+        const langCode = (s.Language || 'und').toLowerCase();
         const langName = s.Language ? s.Language.toUpperCase() : 'Unknown';
         const codec = (s.Codec || 'vtt').toLowerCase();
         const isText = !['pgssub', 'pgs', 'dvd_subtitle', 'vobsub'].includes(codec) && s.IsText !== false;
-        const vttUrl = `${baseUrl}/Videos/${item.Id}/${mediaSourceId}/Subtitles/${streamIndex}/0/Stream.vtt?api_key=${encodeURIComponent(settings.apiKey)}`;
+        // Jellyfin / Emby WebVTT endpoint format: /Videos/{ItemId}/{MediaSourceId}/Subtitles/{SubtitleStreamIndex}/Stream.vtt
+        const vttUrl = `${baseUrl}/Videos/${item.Id}/${mediaSourceId}/Subtitles/${streamIndex}/Stream.vtt?api_key=${encodeURIComponent(settings.apiKey)}`;
         return {
           id: `sub-${item.Id}-${streamIndex}`,
           index: streamIndex,
           lang: langName,
+          code: langCode,
           label: s.DisplayTitle || `${langName} Subtitle`,
           format: codec,
           url: vttUrl,
@@ -1048,14 +1054,16 @@ export async function fetchEmbyNextUpEpisode(
 
     const subtitleTracks: SubtitleTrack[] = subtitleStreams.map((s: any, idx: number) => {
       const streamIndex = s.Index !== undefined ? s.Index : idx;
+      const langCode = (s.Language || 'und').toLowerCase();
       const langName = s.Language ? s.Language.toUpperCase() : 'Unknown';
       const codec = (s.Codec || 'vtt').toLowerCase();
       const isText = !['pgssub', 'pgs', 'dvd_subtitle', 'vobsub'].includes(codec) && s.IsText !== false;
-      const vttUrl = `${baseUrl}/Videos/${item.Id}/${mediaSourceId}/Subtitles/${streamIndex}/0/Stream.vtt?api_key=${encodeURIComponent(settings.apiKey)}`;
+      const vttUrl = `${baseUrl}/Videos/${item.Id}/${mediaSourceId}/Subtitles/${streamIndex}/Stream.vtt?api_key=${encodeURIComponent(settings.apiKey)}`;
       return {
         id: `sub-${item.Id}-${streamIndex}`,
         index: streamIndex,
         lang: langName,
+        code: langCode,
         label: s.DisplayTitle || `${langName} Subtitle`,
         format: codec,
         url: vttUrl,
@@ -1099,6 +1107,7 @@ export async function fetchEmbyNextUpEpisode(
       rating: item.CommunityRating,
       resolutionBadge,
       hdrBadge,
+      videoCodec: videoStream?.Codec ? videoStream.Codec.toUpperCase() : 'HEVC',
       audioTracks: audioTracks.length > 0 ? audioTracks : undefined,
       subtitles: subtitleTracks.map(t => t.label),
       subtitleTracks: subtitleTracks.length > 0 ? subtitleTracks : undefined,
@@ -1110,5 +1119,164 @@ export async function fetchEmbyNextUpEpisode(
     return null;
   }
 }
+
+export interface EmbyPlaybackInfoResponse {
+  MediaSources?: Array<{
+    Id?: string;
+    Container?: string;
+    Path?: string;
+    PlayMethod?: 'DirectPlay' | 'DirectStream' | 'Transcode' | string;
+    TranscodingInfo?: {
+      AudioCodec?: string;
+      VideoCodec?: string;
+      Container?: string;
+      IsVideoDirect?: boolean;
+      IsAudioDirect?: boolean;
+      Bitrate?: number;
+      Framerate?: number;
+      CompletionPercentage?: number;
+      TranscodingPositionTicks?: number;
+      TranscodeReasons?: string[];
+      Reasons?: string[];
+      [key: string]: any;
+    };
+    [key: string]: any;
+  }>;
+  PlaySessionId?: string;
+  [key: string]: any;
+}
+
+/**
+ * Fetches playback info from Emby / Jellyfin server (/Items/{itemId}/PlaybackInfo or /PlaybackInfo).
+ * Inspects MediaSources for real-time play method (DirectPlay, DirectStream, Transcode) and transcoding info.
+ */
+export async function fetchPlaybackInfo(
+  settings?: ServerSettings,
+  itemId?: string,
+  options?: {
+    mediaSourceId?: string;
+    audioStreamIndex?: number;
+    subtitleStreamIndex?: number;
+  }
+): Promise<EmbyPlaybackInfoResponse | null> {
+  if (!settings?.url || !itemId) {
+    return null;
+  }
+
+  const cleanBase = settings.url.replace(/\/$/, '');
+  const mediaSourceId = options?.mediaSourceId || itemId;
+
+  const params = new URLSearchParams({
+    UserId: settings.userId || '',
+    StartTimeTicks: '0',
+    IsPlayback: 'true',
+    AutoOpenLiveStream: 'true',
+    MediaSourceId: mediaSourceId
+  });
+  if (settings.apiKey) {
+    params.append('api_key', settings.apiKey);
+  }
+  if (options?.audioStreamIndex !== undefined) {
+    params.append('AudioStreamIndex', options.audioStreamIndex.toString());
+  }
+  if (options?.subtitleStreamIndex !== undefined && options.subtitleStreamIndex >= 0) {
+    params.append('SubtitleStreamIndex', options.subtitleStreamIndex.toString());
+  }
+
+  const endpoints = [
+    `${cleanBase}/Items/${itemId}/PlaybackInfo?${params.toString()}`,
+    `${cleanBase}/PlaybackInfo?ItemId=${itemId}&${params.toString()}`
+  ];
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  };
+  if (settings.apiKey) {
+    headers['X-Emby-Token'] = settings.apiKey;
+    headers['X-Emby-Device-Name'] = 'JEmby Cinema Player';
+    headers['X-Emby-Device-Id'] = 'jemby-web-player';
+  }
+
+  for (const endpoint of endpoints) {
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          DeviceProfile: {
+            MaxStreamingBitrate: 140000000,
+            MaxStaticBitrate: 140000000,
+            MusicStreamingTranscodingBitrate: 384000
+          }
+        })
+      });
+
+      if (res.ok) {
+        return await res.json();
+      }
+
+      if (res.status === 405 || res.status === 400) {
+        const getRes = await fetch(endpoint, {
+          method: 'GET',
+          headers
+        });
+        if (getRes.ok) {
+          return await getRes.json();
+        }
+      }
+    } catch {
+      // Endpoint unreachable or network error, try fallback
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Maps MediaSources[0] to formatted playback method label according to specifications:
+ * - Check MediaSources[0].PlayMethod. If it exists, map:
+ *   'DirectPlay' -> 'DIRECT PLAY'
+ *   'DirectStream' -> 'DIRECT STREAM'
+ *   'Transcode' -> 'TRANSCODE'
+ * - If PlayMethod is missing but MediaSources[0].TranscodingInfo exists, set to 'TRANSCODE'.
+ * - Otherwise, default to 'DIRECT PLAY'.
+ * - Bonus Data: If status is 'TRANSCODE', append reason or target codec if available from TranscodingInfo.VideoCodec (e.g., "TRANSCODE (H264)").
+ */
+export function getPlaybackMethodFromMediaSource(mediaSource?: any): string {
+  if (!mediaSource) return 'DIRECT PLAY';
+
+  let method = 'DIRECT PLAY';
+  if (mediaSource.PlayMethod) {
+    const pm = String(mediaSource.PlayMethod).trim().toLowerCase();
+    if (pm === 'directplay') {
+      method = 'DIRECT PLAY';
+    } else if (pm === 'directstream') {
+      method = 'DIRECT STREAM';
+    } else if (pm === 'transcode') {
+      method = 'TRANSCODE';
+    } else {
+      method = String(mediaSource.PlayMethod).toUpperCase();
+    }
+  } else if (mediaSource.TranscodingInfo) {
+    method = 'TRANSCODE';
+  } else {
+    method = 'DIRECT PLAY';
+  }
+
+  // Bonus data: If status is 'TRANSCODE', append target codec or reason
+  if (method === 'TRANSCODE' || method.startsWith('TRANSCODE')) {
+    const videoCodec = mediaSource.TranscodingInfo?.VideoCodec;
+    const reasons = mediaSource.TranscodingInfo?.TranscodeReasons || mediaSource.TranscodingInfo?.Reasons;
+    if (videoCodec) {
+      method = `TRANSCODE (${String(videoCodec).toUpperCase()})`;
+    } else if (reasons && Array.isArray(reasons) && reasons.length > 0) {
+      method = `TRANSCODE (${String(reasons[0]).toUpperCase()})`;
+    }
+  }
+
+  return method;
+}
+
 
 
