@@ -458,6 +458,10 @@ export function mapEmbyItemToMovie(item: any, baseUrl: string, settings: ServerS
     subtitles: subtitleLabels.length > 0 ? subtitleLabels : undefined,
     subtitleTracks: subtitleTracks.length > 0 ? subtitleTracks : undefined,
     creditsStartTime,
+    seriesId: item.SeriesId || undefined,
+    seriesName: item.SeriesName || undefined,
+    seasonNumber: item.ParentIndexNumber !== undefined ? item.ParentIndexNumber : undefined,
+    episodeNumber: item.IndexNumber !== undefined ? item.IndexNumber : undefined,
     playbackPositionSeconds,
     playbackPercentage,
     lastWatchedAt: item.UserData?.LastPlayedDate ? new Date(item.UserData.LastPlayedDate).getTime() : undefined
@@ -909,6 +913,201 @@ export async function reportPlaybackProgress(
     });
   } catch (e) {
     // Non-fatal if server reporting drops out
+  }
+}
+
+/**
+ * Fetches the 'Next Up' episode for a TV series from Emby / Jellyfin using the /Shows/NextUp endpoint.
+ * Passes the SeriesId of the currently playing episode.
+ * Extracts next episode's title, season/episode numbers, and overview.
+ * Constructs the Primary image URL using the item's ID: `${baseUrl}/Items/${id}/Images/Primary?quality=90`.
+ * If the fetch returns an empty array (meaning the user finished the series), returns null.
+ */
+export async function fetchEmbyNextUpEpisode(
+  settings: ServerSettings,
+  seriesId: string
+): Promise<Movie | null> {
+  if (!settings.url || !settings.apiKey || !seriesId) {
+    return null;
+  }
+
+  try {
+    const baseUrl = settings.url.replace(/\/$/, '');
+
+    // Step 1: Query active user accounts if available to ensure personalized watch queue
+    let userId = '';
+    try {
+      const usersRes = await fetch(`${baseUrl}/Users?api_key=${encodeURIComponent(settings.apiKey)}`, {
+        headers: { 'X-Emby-Token': settings.apiKey, 'Accept': 'application/json' }
+      });
+      if (usersRes.ok) {
+        const users = await usersRes.json();
+        if (Array.isArray(users) && users.length > 0) {
+          userId = users[0].Id;
+        }
+      }
+    } catch {
+      // Non-fatal, continue with token auth
+    }
+
+    // Step 2: Build /Shows/NextUp request with SeriesId
+    const queryParams = new URLSearchParams({
+      SeriesId: seriesId,
+      Fields: EMBY_ITEM_FIELDS,
+      api_key: settings.apiKey
+    });
+
+    if (userId) {
+      queryParams.append('UserId', userId);
+    }
+
+    const nextUpUrl = `${baseUrl}/Shows/NextUp?${queryParams.toString()}`;
+    const response = await fetch(nextUpUrl, {
+      headers: {
+        'X-Emby-Token': settings.apiKey,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      console.warn(`[Emby NextUp] HTTP ${response.status} from /Shows/NextUp for series ${seriesId}`);
+      return null;
+    }
+
+    const data = await response.json();
+
+    // If the fetch returns an empty array (meaning the user finished the series), return null
+    if (!data || !Array.isArray(data.Items) || data.Items.length === 0) {
+      return null;
+    }
+
+    const item = data.Items[0];
+    if (!item || !item.Id) {
+      return null;
+    }
+
+    // Extract next episode's title, season/episode numbers, and overview
+    const episodeTitle = item.Name || `Episode ${item.IndexNumber || 1}`;
+    const seasonNumber = item.ParentIndexNumber !== undefined ? item.ParentIndexNumber : 1;
+    const episodeNumber = item.IndexNumber !== undefined ? item.IndexNumber : 1;
+    const overview = item.Overview || '';
+    const seriesName = item.SeriesName || '';
+
+    // Construct the Primary image URL using the item's ID
+    const primaryImageUrl = `${baseUrl}/Items/${item.Id}/Images/Primary?quality=90`;
+
+    const runtimeMinutes = item.RunTimeTicks ? Math.floor(item.RunTimeTicks / 10000000 / 60) : 0;
+
+    // Streams & codecs resolution
+    const streams = item.MediaStreams || [];
+    const videoStream = streams.find((s: any) => s.Type === 'Video');
+    const audioStreams = streams.filter((s: any) => s.Type === 'Audio');
+    const subtitleStreams = streams.filter((s: any) => s.Type === 'Subtitle');
+
+    let resolutionBadge = '1080p';
+    if (videoStream) {
+      const width = videoStream.Width || 0;
+      if (width >= 3800) resolutionBadge = '4K UHD';
+      else if (width >= 1900) resolutionBadge = '1080p';
+      else if (width >= 1200) resolutionBadge = '720p';
+    }
+
+    let hdrBadge: string | undefined = undefined;
+    if (videoStream) {
+      const range = (videoStream.VideoRange || '').toUpperCase();
+      if (range.includes('DOVI')) hdrBadge = 'Dolby Vision';
+      else if (range.includes('HDR')) hdrBadge = 'HDR';
+    }
+
+    const audioTracks: AudioTrackInfo[] = audioStreams.map((a: any) => ({
+      lang: (a.Language || 'ENG').toUpperCase(),
+      format: a.Codec ? a.Codec.toUpperCase() : 'Stereo',
+      codec: (a.Codec || '').toLowerCase(),
+      index: a.Index,
+      channels: a.Channels,
+      isDefault: !!a.IsDefault
+    }));
+
+    const primaryAudio = audioTracks.find(a => a.isDefault) || audioTracks[0];
+    const mediaSourceId = item.MediaSources?.[0]?.Id || item.Id;
+
+    const needsAudioTranscode = primaryAudio?.codec ? !isAudioCodecSupported(primaryAudio.codec) : true;
+    const videoUrl = needsAudioTranscode
+      ? buildEmbyHlsStreamUrl(baseUrl, item.Id, settings.apiKey, {
+          mediaSourceId,
+          audioStreamIndex: primaryAudio?.index,
+          audioCodec: primaryAudio?.codec,
+          channels: 2
+        })
+      : buildEmbyStreamUrl(baseUrl, item.Id, settings.apiKey, {
+          mediaSourceId,
+          audioStreamIndex: primaryAudio?.index,
+          audioCodec: primaryAudio?.codec,
+          forceTranscodeAudio: false
+        });
+
+    const subtitleTracks: SubtitleTrack[] = subtitleStreams.map((s: any, idx: number) => {
+      const streamIndex = s.Index !== undefined ? s.Index : idx;
+      const langName = s.Language ? s.Language.toUpperCase() : 'Unknown';
+      const codec = (s.Codec || 'vtt').toLowerCase();
+      const isText = !['pgssub', 'pgs', 'dvd_subtitle', 'vobsub'].includes(codec) && s.IsText !== false;
+      const vttUrl = `${baseUrl}/Videos/${item.Id}/${mediaSourceId}/Subtitles/${streamIndex}/0/Stream.vtt?api_key=${encodeURIComponent(settings.apiKey)}`;
+      return {
+        id: `sub-${item.Id}-${streamIndex}`,
+        index: streamIndex,
+        lang: langName,
+        label: s.DisplayTitle || `${langName} Subtitle`,
+        format: codec,
+        url: vttUrl,
+        isDefault: !!s.IsDefault,
+        isText
+      };
+    });
+
+    // Detect credits start time from chapters if available
+    let creditsStartTime: number | undefined = undefined;
+    if (item.Chapters && Array.isArray(item.Chapters)) {
+      const creditsChapter = item.Chapters.find((ch: any) => {
+        const type = (ch.MarkerType || '').toLowerCase();
+        const name = (ch.Name || '').toLowerCase();
+        return type.includes('credits') || type.includes('outro') || name.includes('credits') || name.includes('end credits') || name.includes('outro');
+      });
+      if (creditsChapter && creditsChapter.StartPositionTicks) {
+        creditsStartTime = Math.floor(creditsChapter.StartPositionTicks / 10000000);
+      }
+    }
+
+    const padSeason = seasonNumber.toString().padStart(2, '0');
+    const padEpisode = episodeNumber.toString().padStart(2, '0');
+    const formattedTitle = seriesName 
+      ? `${seriesName} • S${padSeason}E${padEpisode} "${episodeTitle}"` 
+      : `S${padSeason}E${padEpisode} "${episodeTitle}"`;
+
+    return {
+      id: item.Id,
+      seriesId: item.SeriesId || seriesId,
+      seriesName,
+      seasonNumber,
+      episodeNumber,
+      mediaSourceId,
+      title: formattedTitle,
+      overview,
+      runtime: runtimeMinutes,
+      poster: primaryImageUrl,
+      backdrop: primaryImageUrl,
+      videoUrl,
+      rating: item.CommunityRating,
+      resolutionBadge,
+      hdrBadge,
+      audioTracks: audioTracks.length > 0 ? audioTracks : undefined,
+      subtitles: subtitleTracks.map(t => t.label),
+      subtitleTracks: subtitleTracks.length > 0 ? subtitleTracks : undefined,
+      creditsStartTime,
+      playbackPositionSeconds: item.UserData?.PlaybackPositionTicks ? Math.floor(item.UserData.PlaybackPositionTicks / 10000000) : undefined
+    };
+  } catch (err) {
+    console.error(`Failed to fetch /Shows/NextUp for series ${seriesId}:`, err);
+    return null;
   }
 }
 

@@ -566,9 +566,9 @@ export function VideoPlayer({
     setCountdown(10);
   }, [movie?.id]);
 
-  // 10-second countdown ticker for Up Next sequence
+  // 10-second countdown ticker for Up Next sequence (only active when nextMovie exists)
   useEffect(() => {
-    if (!isCreditsSkipping) {
+    if (!isCreditsSkipping || !nextMovie) {
       setCountdown(10);
       return;
     }
@@ -586,14 +586,14 @@ export function VideoPlayer({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isCreditsSkipping, isPlaying]);
+  }, [isCreditsSkipping, nextMovie, isPlaying]);
 
   // When countdown hits 0 without interruption: trigger play next
   useEffect(() => {
-    if (isCreditsSkipping && countdown === 0) {
+    if (isCreditsSkipping && nextMovie && countdown === 0) {
       handleTriggerPlayNext();
     }
-  }, [isCreditsSkipping, countdown, handleTriggerPlayNext]);
+  }, [isCreditsSkipping, nextMovie, countdown, handleTriggerPlayNext]);
 
   // Video event handlers
   const handleTimeUpdate = () => {
@@ -612,8 +612,9 @@ export function VideoPlayer({
 
     // Time Tracking Logic:
     // When the video reaches the last 5% of its duration (or a specific 'credits start' timestamp if available),
-    // trigger an isCreditsSkipping state.
-    if (dur > 5 && !hasDismissedCredits) {
+    // trigger an isCreditsSkipping state ONLY if nextMovie is available.
+    // If nextMovie is null (meaning the user finished the series or standalone movie), quietly let video finish normally.
+    if (dur > 5 && !hasDismissedCredits && nextMovie) {
       const creditsStartPoint = movie?.creditsStartTime && movie.creditsStartTime > 0 && movie.creditsStartTime < dur
         ? movie.creditsStartTime
         : dur * 0.95;
@@ -626,6 +627,8 @@ export function VideoPlayer({
         // If user scrubbed back before credits start, restore full screen
         setIsCreditsSkipping(false);
       }
+    } else if (!nextMovie && isCreditsSkipping) {
+      setIsCreditsSkipping(false);
     }
   };
 
@@ -829,13 +832,13 @@ export function VideoPlayer({
     >
       {/* Main Video Viewport Wrapper with Smooth Scale/Translate Transition to Top-Left Quadrant */}
       <div 
-        onClick={isCreditsSkipping ? handleCancelCredits : undefined}
+        onClick={isCreditsSkipping && nextMovie ? handleCancelCredits : undefined}
         className={`absolute inset-0 transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] origin-top-left flex items-center justify-center bg-black ${
-          isCreditsSkipping 
+          isCreditsSkipping && nextMovie
             ? 'scale-[0.32] sm:scale-[0.36] md:scale-[0.38] lg:scale-[0.40] translate-x-6 translate-y-6 sm:translate-x-10 sm:translate-y-10 md:translate-x-12 md:translate-y-12 rounded-2xl overflow-hidden shadow-[0_25px_60px_rgba(0,0,0,0.95)] ring-1 ring-white/20 z-30 cursor-pointer group/minivid'
             : 'scale-100 translate-x-0 translate-y-0 z-10'
         }`}
-        title={isCreditsSkipping ? "Click to watch full screen" : undefined}
+        title={isCreditsSkipping && nextMovie ? "Click to watch full screen" : undefined}
       >
         {/* Cinematic Ambient Glow (Ambilight) Canvas */}
         {isAmbientGlowEnabled && (
@@ -848,7 +851,7 @@ export function VideoPlayer({
             style={{
               filter: 'blur(80px) brightness(0.8) opacity(0.7)',
               willChange: 'filter',
-              opacity: isPlaying && !isCreditsSkipping ? 0.7 : 0
+              opacity: isPlaying && (!isCreditsSkipping || !nextMovie) ? 0.7 : 0
             }}
           />
         )}
@@ -878,7 +881,7 @@ export function VideoPlayer({
         />
 
         {/* Shrunk Mini-Player Hover Hint to Watch Credits */}
-        {isCreditsSkipping && (
+        {isCreditsSkipping && nextMovie && (
           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/minivid:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
             <div className="px-3.5 py-1.5 rounded-xl bg-black/85 backdrop-blur-md text-white text-xs font-medium flex items-center gap-2 border border-white/20 shadow-2xl">
               <Maximize size={14} />
@@ -891,7 +894,7 @@ export function VideoPlayer({
       {/* Up Next Post-Credits Showcase Container (in remaining screen space) */}
       <div 
         className={`absolute inset-0 z-20 flex flex-col justify-center items-end p-6 sm:p-10 md:p-12 lg:p-16 transition-opacity duration-700 ease-in-out ${
-          isCreditsSkipping ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          isCreditsSkipping && nextMovie ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
         {/* Right Pane Showcase (occupies ~55% width on desktop, clear of top-left quadrant) */}
@@ -1121,8 +1124,8 @@ export function VideoPlayer({
               <span>{clockString}</span>
             </div>
 
-            {/* Quick Skip to Credits button */}
-            {duration > 15 && (
+            {/* Quick Skip to Credits button (only available when an Up Next title exists) */}
+            {duration > 15 && nextMovie && (
               <button
                 data-tv-focus="true"
                 onClick={() => {

@@ -6,7 +6,14 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Movie, TvShow, Episode, ServerSettings, SortField, SortDirection } from './types';
 import { MOCK_MOVIES, MOCK_TV_SHOWS, getMockEpisodesForSeries } from './mockData';
-import { fetchEmbyMovies, fetchEmbyTvShows, fetchEmbyResumeItems, reportPlaybackProgress, episodeToPlayableMovie } from './api/emby';
+import { 
+  fetchEmbyMovies, 
+  fetchEmbyTvShows, 
+  fetchEmbyResumeItems, 
+  fetchEmbyNextUpEpisode, 
+  reportPlaybackProgress, 
+  episodeToPlayableMovie 
+} from './api/emby';
 import { Sidebar, NavTab } from './components/Sidebar';
 import { MovieGrid } from './components/MovieGrid';
 import { MovieDetails } from './components/MovieDetails';
@@ -304,12 +311,39 @@ export default function App() {
     setSelectedTvShow(null);
   }, [handlePlayMovie]);
 
-  // Compute next video item for post-credits "Up Next" sequence
-  const nextPlayableMovie = useMemo<Movie | null>(() => {
-    if (!playingMovie) return null;
+  // Next video item for post-credits "Up Next" sequence
+  const [nextPlayableMovie, setNextPlayableMovie] = useState<Movie | null>(null);
 
-    // 1. If currently playing a TV Show episode: resolve the next episode
-    if (playingMovie.seriesId) {
+  useEffect(() => {
+    if (!playingMovie) {
+      setNextPlayableMovie(null);
+      return;
+    }
+
+    // Only TV series episodes have 'Up Next' next episodes
+    if (!playingMovie.seriesId) {
+      setNextPlayableMovie(null);
+      return;
+    }
+
+    let isSubscribed = true;
+
+    // Fetch from real Emby/Jellyfin /Shows/NextUp endpoint
+    if (isConnected && settings.url && settings.apiKey) {
+      fetchEmbyNextUpEpisode(settings, playingMovie.seriesId)
+        .then(nextEp => {
+          if (isSubscribed) {
+            setNextPlayableMovie(nextEp);
+          }
+        })
+        .catch(err => {
+          console.warn("Failed to fetch next up episode from Emby:", err);
+          if (isSubscribed) {
+            setNextPlayableMovie(null);
+          }
+        });
+    } else {
+      // Demo / mock data mode
       const show = tvShows.find(s => s.id === playingMovie.seriesId);
       if (show) {
         const curSeason = playingMovie.seasonNumber || 1;
@@ -319,27 +353,26 @@ export default function App() {
         const currentSeasonEps = getMockEpisodesForSeries(show.id, curSeason);
         const nextEp = currentSeasonEps.find(e => e.episodeNumber === curEpisode + 1);
         if (nextEp) {
-          return episodeToPlayableMovie(nextEp);
+          setNextPlayableMovie(episodeToPlayableMovie(nextEp));
+          return;
         }
 
         // Try episode 1 of next season
         const nextSeasonEps = getMockEpisodesForSeries(show.id, curSeason + 1);
         if (nextSeasonEps.length > 0) {
-          return episodeToPlayableMovie(nextSeasonEps[0]);
+          setNextPlayableMovie(episodeToPlayableMovie(nextSeasonEps[0]));
+          return;
         }
       }
+
+      // If user finished the series: return null! (No dummy item!)
+      setNextPlayableMovie(null);
     }
 
-    // 2. If playing a standalone movie: find the next movie in the collection
-    const currentIndex = movies.findIndex(m => m.id === playingMovie.id);
-    if (currentIndex !== -1 && movies.length > 1) {
-      return movies[(currentIndex + 1) % movies.length];
-    }
-
-    // 3. Fallback to another movie from mock library
-    const fallback = MOCK_MOVIES.find(m => m.id !== playingMovie.id) || MOCK_MOVIES[0];
-    return fallback;
-  }, [playingMovie, tvShows, movies]);
+    return () => {
+      isSubscribed = false;
+    };
+  }, [playingMovie?.id, playingMovie?.seriesId, isConnected, settings.url, settings.apiKey, tvShows]);
 
   // Living Room / TV Remote / Gamepad spatial navigation handler
   const handleBackAction = useCallback(() => {
