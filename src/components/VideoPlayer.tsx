@@ -25,15 +25,20 @@ import {
   Sparkles,
   ChevronRight,
   Check,
-  ArrowLeft
+  ArrowLeft,
+  FastForward,
+  Settings as SettingsIcon,
+  Sun
 } from 'lucide-react';
 
 interface VideoPlayerProps {
   movie: Movie | null;
+  nextMovie?: Movie | null;
   initialTime?: number;
   settings?: ServerSettings;
   onClose: () => void;
   onProgressUpdate?: (movieId: string, positionSeconds: number, durationSeconds: number) => void;
+  onPlayNext?: (next: Movie) => void;
 }
 
 interface SubtitleCue {
@@ -97,7 +102,15 @@ function parseSubtitleText(raw: string): SubtitleCue[] {
   return cues;
 }
 
-export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressUpdate }: VideoPlayerProps) {
+export function VideoPlayer({ 
+  movie, 
+  nextMovie, 
+  initialTime, 
+  settings, 
+  onClose, 
+  onProgressUpdate,
+  onPlayNext 
+}: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -115,10 +128,88 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState(0);
 
+  // Up Next / Post-credits sequence state
+  const [isCreditsSkipping, setIsCreditsSkipping] = useState(false);
+  const [hasDismissedCredits, setHasDismissedCredits] = useState(false);
+  const [countdown, setCountdown] = useState(10);
+
+  // Cinematic Ambient Glow (Ambilight) canvas and preferences
+  const ambientCanvasRef = useRef<HTMLCanvasElement>(null);
+  const ambilightRafRef = useRef<number | null>(null);
+  const [isAmbientGlowEnabled, setIsAmbientGlowEnabled] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('jemby_ambient_glow');
+      return stored !== null ? stored === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  // Settings menu state
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+
   // Subtitle & Audio tracks menu
   const [showAudioMenu, setShowAudioMenu] = useState(false);
   const [showSubMenu, setShowSubMenu] = useState(false);
   const [selectedAudio, setSelectedAudio] = useState(0);
+
+  // Toggle ambient glow and save to localStorage
+  const toggleAmbientGlow = useCallback(() => {
+    setIsAmbientGlowEnabled(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('jemby_ambient_glow', String(next));
+      } catch {}
+      setToastMessage(next ? 'Ambient Glow: ON' : 'Ambient Glow: OFF');
+      return next;
+    });
+  }, []);
+
+  // Performance-optimized requestAnimationFrame rendering loop for Ambient Glow
+  // Downscales frame to 64x36 pixels and stops immediately when paused to conserve CPU/GPU
+  useEffect(() => {
+    if (!isAmbientGlowEnabled || !isPlaying || isCreditsSkipping) {
+      if (ambilightRafRef.current) {
+        cancelAnimationFrame(ambilightRafRef.current);
+        ambilightRafRef.current = null;
+      }
+      return;
+    }
+
+    const canvas = ambientCanvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+
+    let isSubscribed = true;
+
+    const renderGlowFrame = () => {
+      if (!isSubscribed) return;
+
+      if (video.readyState >= 2 && !video.paused && !video.ended) {
+        try {
+          // Draw video frame downscaled to 64x36 for ultra-fast GPU processing
+          ctx.drawImage(video, 0, 0, 64, 36);
+        } catch {
+          // Cross-origin canvas security exceptions are caught silently
+        }
+      }
+
+      ambilightRafRef.current = requestAnimationFrame(renderGlowFrame);
+    };
+
+    ambilightRafRef.current = requestAnimationFrame(renderGlowFrame);
+
+    return () => {
+      isSubscribed = false;
+      if (ambilightRafRef.current) {
+        cancelAnimationFrame(ambilightRafRef.current);
+        ambilightRafRef.current = null;
+      }
+    };
+  }, [isAmbientGlowEnabled, isPlaying, isCreditsSkipping]);
 
   // Subtitle track list: strictly from Emby (NO dummy fallback)
   const subtitleTracks = useMemo<SubtitleTrack[]>(() => movie?.subtitleTracks || [], [movie?.subtitleTracks]);
@@ -172,19 +263,28 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
     if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
     if (isPlaying) {
       hideTimeoutRef.current = setTimeout(() => {
-        if (!showAudioMenu && !showSubMenu) {
+        if (!showAudioMenu && !showSubMenu && !showSettingsMenu) {
           setShowControls(false);
         }
-      }, 3500);
+      }, 2500); // 2.5 seconds of mouse inactivity
     }
-  }, [isPlaying, showAudioMenu, showSubMenu]);
+  }, [isPlaying, showAudioMenu, showSubMenu, showSettingsMenu]);
 
   useEffect(() => {
     resetControlsTimer();
     return () => {
       if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
     };
-  }, [isPlaying]);
+  }, [isPlaying, resetControlsTimer]);
+
+  // Lock body scroll while player is active (hide browser scrollbars)
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
 
   // Audio track list
   const audioTracks = useMemo<AudioTrackInfo[]>(() => {
@@ -429,10 +529,77 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
     };
   }, [selectedSub, activeSubUrl]);
 
+  // Save progress immediately on close, pause, or transition
+  const reportCurrentProgress = useCallback(() => {
+    if (movie?.id && videoRef.current && onProgressUpdate) {
+      onProgressUpdate(movie.id, videoRef.current.currentTime, videoRef.current.duration || duration);
+    }
+  }, [movie, duration, onProgressUpdate]);
+
+  const handleClosePlayer = useCallback(() => {
+    reportCurrentProgress();
+    onClose();
+  }, [reportCurrentProgress, onClose]);
+
+  // Action to play upcoming item (or close player if none)
+  const handleTriggerPlayNext = useCallback(() => {
+    reportCurrentProgress();
+    setIsCreditsSkipping(false);
+    setHasDismissedCredits(false);
+    if (nextMovie && onPlayNext) {
+      onPlayNext(nextMovie);
+    } else {
+      handleClosePlayer();
+    }
+  }, [nextMovie, onPlayNext, reportCurrentProgress, handleClosePlayer]);
+
+  // Cancel Up Next countdown and watch credits full-screen
+  const handleCancelCredits = useCallback(() => {
+    setIsCreditsSkipping(false);
+    setHasDismissedCredits(true);
+  }, []);
+
+  // Reset Up Next state when movie changes
+  useEffect(() => {
+    setIsCreditsSkipping(false);
+    setHasDismissedCredits(false);
+    setCountdown(10);
+  }, [movie?.id]);
+
+  // 10-second countdown ticker for Up Next sequence
+  useEffect(() => {
+    if (!isCreditsSkipping) {
+      setCountdown(10);
+      return;
+    }
+
+    if (!isPlaying) return;
+
+    const timer = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isCreditsSkipping, isPlaying]);
+
+  // When countdown hits 0 without interruption: trigger play next
+  useEffect(() => {
+    if (isCreditsSkipping && countdown === 0) {
+      handleTriggerPlayNext();
+    }
+  }, [isCreditsSkipping, countdown, handleTriggerPlayNext]);
+
   // Video event handlers
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
     const now = videoRef.current.currentTime;
+    const dur = videoRef.current.duration || duration;
     setCurrentTime(now);
 
     // Synchronize active subtitle cue
@@ -441,6 +608,24 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
       setActiveSubtitleText(match ? match.text : '');
     } else {
       setActiveSubtitleText('');
+    }
+
+    // Time Tracking Logic:
+    // When the video reaches the last 5% of its duration (or a specific 'credits start' timestamp if available),
+    // trigger an isCreditsSkipping state.
+    if (dur > 5 && !hasDismissedCredits) {
+      const creditsStartPoint = movie?.creditsStartTime && movie.creditsStartTime > 0 && movie.creditsStartTime < dur
+        ? movie.creditsStartTime
+        : dur * 0.95;
+
+      if (now >= creditsStartPoint) {
+        if (!isCreditsSkipping) {
+          setIsCreditsSkipping(true);
+        }
+      } else if (isCreditsSkipping && now < creditsStartPoint - 2) {
+        // If user scrubbed back before credits start, restore full screen
+        setIsCreditsSkipping(false);
+      }
     }
   };
 
@@ -484,18 +669,6 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
       if (progressReportTimer.current) clearInterval(progressReportTimer.current);
     };
   }, [movie?.id, duration, onProgressUpdate, settings?.apiKey, settings?.url, selectedAudio, selectedSub]);
-
-  // Save progress immediately on close or pause
-  const reportCurrentProgress = useCallback(() => {
-    if (movie?.id && videoRef.current && onProgressUpdate) {
-      onProgressUpdate(movie.id, videoRef.current.currentTime, videoRef.current.duration || duration);
-    }
-  }, [movie, duration, onProgressUpdate]);
-
-  const handleClosePlayer = () => {
-    reportCurrentProgress();
-    onClose();
-  };
 
   const togglePlay = () => {
     if (!videoRef.current) return;
@@ -614,7 +787,22 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
           break;
         case 'Escape':
         case 'Backspace':
-          handleClosePlayer();
+          e.preventDefault();
+          if (isCreditsSkipping) {
+            handleCancelCredits();
+          } else {
+            handleClosePlayer();
+          }
+          break;
+        case 'c':
+        case 'C':
+          if (isCreditsSkipping) {
+            handleCancelCredits();
+          }
+          break;
+        case 'g':
+        case 'G':
+          toggleAmbientGlow();
           break;
         default:
           break;
@@ -623,7 +811,7 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [volume, isMuted, duration, isPlaying, handleClosePlayer, resetControlsTimer]);
+  }, [volume, isMuted, duration, isPlaying, isCreditsSkipping, toggleAmbientGlow, handleCancelCredits, handleClosePlayer, resetControlsTimer]);
 
   if (!movie || !movie.videoUrl) return null;
 
@@ -635,44 +823,244 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
       ref={containerRef}
       onMouseMove={resetControlsTimer}
       onClick={resetControlsTimer}
-      className={`fixed inset-0 z-50 bg-black flex items-center justify-center select-none overflow-hidden font-sans text-white ${
+      className={`fixed inset-0 w-screen h-screen m-0 p-0 z-50 bg-[#000000] flex items-center justify-center select-none overflow-hidden font-sans text-[#E0E0E0] ${
         !showControls && isPlaying ? 'cursor-none' : 'cursor-default'
       }`}
     >
-      {/* Video Element */}
-      <video 
-        ref={videoRef}
-        autoPlay 
-        playsInline
-        onTimeUpdate={handleTimeUpdate}
-        onLoadedMetadata={handleLoadedMetadata}
-        onError={handleVideoError}
-        onPlay={() => {
-          setIsPlaying(true);
-          if (settings && movie && videoRef.current) {
-            reportEmbyPlaybackProgress(settings, movie.id, movie.mediaSourceId || movie.id, playSessionId, videoRef.current.currentTime, false);
-          }
-        }}
-        onPause={() => {
-          setIsPlaying(false);
-          reportCurrentProgress();
-          if (settings && movie && videoRef.current) {
-            reportEmbyPlaybackProgress(settings, movie.id, movie.mediaSourceId || movie.id, playSessionId, videoRef.current.currentTime, true);
-          }
-        }}
-        className="w-full h-full object-contain"
-        crossOrigin="anonymous"
+      {/* Main Video Viewport Wrapper with Smooth Scale/Translate Transition to Top-Left Quadrant */}
+      <div 
+        onClick={isCreditsSkipping ? handleCancelCredits : undefined}
+        className={`absolute inset-0 transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] origin-top-left flex items-center justify-center bg-black ${
+          isCreditsSkipping 
+            ? 'scale-[0.32] sm:scale-[0.36] md:scale-[0.38] lg:scale-[0.40] translate-x-6 translate-y-6 sm:translate-x-10 sm:translate-y-10 md:translate-x-12 md:translate-y-12 rounded-2xl overflow-hidden shadow-[0_25px_60px_rgba(0,0,0,0.95)] ring-1 ring-white/20 z-30 cursor-pointer group/minivid'
+            : 'scale-100 translate-x-0 translate-y-0 z-10'
+        }`}
+        title={isCreditsSkipping ? "Click to watch full screen" : undefined}
+      >
+        {/* Cinematic Ambient Glow (Ambilight) Canvas */}
+        {isAmbientGlowEnabled && (
+          <canvas
+            ref={ambientCanvasRef}
+            width={64}
+            height={36}
+            aria-hidden="true"
+            className="absolute inset-0 w-full h-full object-cover pointer-events-none scale-110 md:scale-[1.15] transition-opacity duration-500 ease-out z-0"
+            style={{
+              filter: 'blur(80px) brightness(0.8) opacity(0.7)',
+              willChange: 'filter',
+              opacity: isPlaying && !isCreditsSkipping ? 0.7 : 0
+            }}
+          />
+        )}
+
+        <video 
+          ref={videoRef}
+          autoPlay 
+          playsInline
+          onTimeUpdate={handleTimeUpdate}
+          onLoadedMetadata={handleLoadedMetadata}
+          onError={handleVideoError}
+          onPlay={() => {
+            setIsPlaying(true);
+            if (settings && movie && videoRef.current) {
+              reportEmbyPlaybackProgress(settings, movie.id, movie.mediaSourceId || movie.id, playSessionId, videoRef.current.currentTime, false);
+            }
+          }}
+          onPause={() => {
+            setIsPlaying(false);
+            reportCurrentProgress();
+            if (settings && movie && videoRef.current) {
+              reportEmbyPlaybackProgress(settings, movie.id, movie.mediaSourceId || movie.id, playSessionId, videoRef.current.currentTime, true);
+            }
+          }}
+          className="relative z-10 w-full h-full object-contain pointer-events-auto"
+          crossOrigin="anonymous"
+        />
+
+        {/* Shrunk Mini-Player Hover Hint to Watch Credits */}
+        {isCreditsSkipping && (
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/minivid:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+            <div className="px-3.5 py-1.5 rounded-xl bg-black/85 backdrop-blur-md text-white text-xs font-medium flex items-center gap-2 border border-white/20 shadow-2xl">
+              <Maximize size={14} />
+              <span>Expand Credits</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Up Next Post-Credits Showcase Container (in remaining screen space) */}
+      <div 
+        className={`absolute inset-0 z-20 flex flex-col justify-center items-end p-6 sm:p-10 md:p-12 lg:p-16 transition-opacity duration-700 ease-in-out ${
+          isCreditsSkipping ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        {/* Right Pane Showcase (occupies ~55% width on desktop, clear of top-left quadrant) */}
+        <div className="w-full md:w-[58%] lg:w-[54%] xl:w-[50%] flex flex-col gap-6 md:gap-7 bg-transparent text-[#E0E0E0]">
+          
+          {/* Header row: Circular Countdown + "UP NEXT" Tag */}
+          <div className="flex items-center gap-4">
+            {/* Circular Progress Ring with Countdown */}
+            <div className="relative flex items-center justify-center w-14 h-14 shrink-0">
+              <svg className="w-14 h-14 -rotate-90 transform" viewBox="0 0 48 48">
+                {/* Track */}
+                <circle
+                  cx="24"
+                  cy="24"
+                  r="20"
+                  fill="none"
+                  stroke="rgba(255, 255, 255, 0.12)"
+                  strokeWidth="3.5"
+                />
+                {/* Animated progress ring */}
+                <circle
+                  cx="24"
+                  cy="24"
+                  r="20"
+                  fill="none"
+                  stroke="#FFFFFF"
+                  strokeWidth="3.5"
+                  strokeDasharray={2 * Math.PI * 20}
+                  strokeDashoffset={2 * Math.PI * 20 * (1 - countdown / 10)}
+                  strokeLinecap="round"
+                  className="transition-[stroke-dashoffset] duration-1000 ease-linear"
+                />
+              </svg>
+              <span className="absolute font-mono font-bold text-sm text-[#FFFFFF] tabular-nums">
+                {countdown}
+              </span>
+            </div>
+
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/[0.12] border border-white/20 text-[#FFFFFF] text-[11px] font-bold tracking-widest uppercase">
+                  <Sparkles size={11} className="text-white" />
+                  Up Next
+                </span>
+                <span className="text-xs font-mono text-[#9E9E9E]">
+                  Starting in {countdown}s
+                </span>
+              </div>
+              <p className="text-xs text-[#9E9E9E]">
+                Next title will begin automatically
+              </p>
+            </div>
+          </div>
+
+          {/* Upcoming Item Preview Card: Poster, Title, Episode Summary */}
+          {nextMovie && (
+            <div className="rounded-2xl bg-black/70 border border-white/[0.08] p-5 sm:p-6 backdrop-blur-xl shadow-[0_20px_50px_rgba(0,0,0,0.95)] flex flex-col sm:flex-row gap-5 items-start">
+              {/* Poster / Thumbnail image */}
+              <div className="relative w-28 sm:w-32 md:w-36 aspect-[2/3] shrink-0 rounded-xl overflow-hidden shadow-2xl border border-white/10 bg-zinc-950">
+                {nextMovie.poster || nextMovie.backdrop ? (
+                  <img 
+                    src={nextMovie.poster || nextMovie.backdrop || ''} 
+                    alt={nextMovie.title} 
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-zinc-600 bg-zinc-900">
+                    <Play size={24} />
+                  </div>
+                )}
+                {nextMovie.resolutionBadge && (
+                  <span className="absolute bottom-2 left-2 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-md text-[9px] font-mono text-white/90 border border-white/10">
+                    {nextMovie.resolutionBadge}
+                  </span>
+                )}
+              </div>
+
+              {/* Title & Metadata & Episode Summary */}
+              <div className="flex-1 min-w-0 space-y-2">
+                {nextMovie.seriesName && (
+                  <div className="text-xs font-semibold tracking-wider uppercase text-[#9E9E9E]">
+                    {nextMovie.seriesName}
+                    {nextMovie.seasonNumber !== undefined && nextMovie.episodeNumber !== undefined && (
+                      <span className="text-white/60 ml-1.5">
+                        · S{nextMovie.seasonNumber.toString().padStart(2, '0')}E{nextMovie.episodeNumber.toString().padStart(2, '0')}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <h2 className="cinema-title text-xl sm:text-2xl font-bold text-[#FFFFFF] tracking-wide line-clamp-2">
+                  {nextMovie.title}
+                </h2>
+
+                <div className="flex items-center gap-2.5 text-xs text-[#9E9E9E] font-medium">
+                  {nextMovie.year && <span>{nextMovie.year}</span>}
+                  {nextMovie.runtime && (
+                    <>
+                      <span className="opacity-40">·</span>
+                      <span>{nextMovie.runtime}m</span>
+                    </>
+                  )}
+                  {nextMovie.rating && (
+                    <>
+                      <span className="opacity-40">·</span>
+                      <span className="text-amber-300 font-medium">★ {nextMovie.rating}</span>
+                    </>
+                  )}
+                  {nextMovie.hdrBadge && (
+                    <>
+                      <span className="opacity-40">·</span>
+                      <span className="text-white/70">{nextMovie.hdrBadge}</span>
+                    </>
+                  )}
+                </div>
+
+                {nextMovie.overview && (
+                  <p className="text-xs sm:text-sm text-[#E0E0E0]/80 font-light leading-relaxed line-clamp-3 pt-1">
+                    {nextMovie.overview}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Action Buttons: "Play Now" and "Cancel / Watch Credits" */}
+          <div className="flex items-center gap-3.5 pt-1">
+            <button
+              onClick={handleTriggerPlayNext}
+              className="px-6 py-3 rounded-xl bg-[#FFFFFF] hover:bg-white/90 active:scale-[0.98] text-[#000000] font-semibold text-sm md:text-base flex items-center gap-2.5 transition-all shadow-[0_0_24px_rgba(255,255,255,0.25)] focus:outline-none focus:ring-2 focus:ring-white cursor-pointer"
+            >
+              <Play size={18} className="fill-black" />
+              <span>Play Now</span>
+            </button>
+
+            <button
+              onClick={handleCancelCredits}
+              className="px-5 py-3 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] active:scale-[0.98] text-[#E0E0E0] hover:text-[#FFFFFF] font-medium text-sm md:text-base flex items-center gap-2 border border-white/[0.12] transition-all focus:outline-none focus:ring-2 focus:ring-white/40 cursor-pointer backdrop-blur-md"
+            >
+              <span>Cancel / Watch Credits</span>
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      {/* Subtle Black Gradient Overlay at the bottom (fading to transparent halfway up) */}
+      <div 
+        className={`pointer-events-none absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/90 via-black/35 to-transparent transition-opacity duration-[400ms] ease-in-out z-10 ${
+          showControls && !isCreditsSkipping ? 'opacity-100' : 'opacity-0'
+        }`} 
+      />
+
+      {/* Subtle Top Ambient Gradient */}
+      <div 
+        className={`pointer-events-none absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black/80 via-black/25 to-transparent transition-opacity duration-[400ms] ease-in-out z-10 ${
+          showControls && !isCreditsSkipping ? 'opacity-100' : 'opacity-0'
+        }`} 
       />
 
       {/* High-Visibility Cinema Subtitles Overlay */}
-      {activeSubtitleText && (
+      {activeSubtitleText && !isCreditsSkipping && (
         <div 
-          className={`absolute left-0 right-0 flex justify-center pointer-events-none z-40 px-6 transition-all duration-200 ${
+          className={`absolute left-0 right-0 flex justify-center pointer-events-none z-40 px-6 transition-all duration-300 ${
             showControls ? 'bottom-28 md:bottom-32' : 'bottom-10 md:bottom-14'
           }`}
         >
           <div className="max-w-4xl text-center">
-            <span className="inline-block px-4 py-2 rounded-lg bg-black/85 backdrop-blur-md text-white text-lg sm:text-xl md:text-2xl font-semibold tracking-wide leading-relaxed shadow-[0_4px_24px_rgba(0,0,0,0.95)] border border-white/10 [text-shadow:_0_2px_4px_rgba(0,0,0,0.95)]">
+            <span className="inline-block px-4 py-2 rounded-lg bg-black/85 backdrop-blur-md text-[#FFFFFF] text-lg sm:text-xl md:text-2xl font-semibold tracking-wide leading-relaxed shadow-[0_4px_24px_rgba(0,0,0,0.95)] border border-white/10 [text-shadow:_0_2px_4px_rgba(0,0,0,0.95)]">
               {activeSubtitleText}
             </span>
           </div>
@@ -681,426 +1069,477 @@ export function VideoPlayer({ movie, initialTime, settings, onClose, onProgressU
 
       {/* Quick Setting Toast Message */}
       {toastMessage && (
-        <div className="absolute top-24 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-zinc-900/90 border border-cyan-400/50 text-cyan-300 text-xs font-semibold tracking-wider uppercase shadow-2xl backdrop-blur-md z-40 pointer-events-none">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-black/90 border border-white/15 text-[#E0E0E0] text-xs font-medium tracking-wider shadow-2xl backdrop-blur-md z-40 pointer-events-none">
           {toastMessage}
         </div>
       )}
 
-      {/* JEmby HUD Overlay (Smooth Fade) */}
-      <div className={`absolute inset-0 flex flex-col justify-between transition-opacity duration-300 pointer-events-none ${
-        showControls ? 'opacity-100' : 'opacity-0'
+      {/* Cinema HUD Overlay with Smooth 0.4s In-Out Transition */}
+      <div className={`absolute inset-0 flex flex-col justify-between transition-opacity duration-[400ms] ease-in-out pointer-events-none z-20 ${
+        showControls && !isCreditsSkipping ? 'opacity-100' : 'opacity-0'
       }`}>
         
-        {/* JEmby Top Bar: Ambient Dark Gradient + Cinema Title & Badges */}
-        <div className="w-full bg-gradient-to-b from-black/90 via-black/60 to-transparent pt-6 pb-12 px-10 md:px-14 flex items-start justify-between pointer-events-auto">
-          {/* Left Title Info */}
+        {/* Top Header Bar */}
+        <div className="w-full pt-6 pb-4 px-8 md:px-12 flex items-start justify-between pointer-events-auto">
+          {/* Left Title & Metadata */}
           <div className="space-y-1">
-            <div className="flex items-center gap-3">
-              <span className="text-[11px] font-black tracking-widest text-cyan-400 uppercase flex items-center gap-1.5 drop-shadow">
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#22d3ee]" />
-                JEmby Player
-              </span>
-              {movie.resolutionBadge && (
-                <span className="px-2 py-0.5 rounded text-[10px] font-black bg-white/15 border border-white/20 uppercase tracking-widest text-white/90">
-                  {movie.resolutionBadge}
-                </span>
-              )}
-              {movie.contentRating && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-white/10 border border-white/20 text-white/80">
-                  {movie.contentRating}
-                </span>
-              )}
-            </div>
-
-            <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]">
+            <h1 className="cinema-title text-xl sm:text-2xl md:text-3xl font-bold text-[#FFFFFF] tracking-wide drop-shadow-[0_2px_12px_rgba(0,0,0,0.95)]">
               {movie.title}
             </h1>
 
-            <div className="flex items-center gap-3 text-xs text-white/70 font-medium">
+            <div className="flex items-center gap-2.5 text-xs text-[#9E9E9E] font-medium tracking-wider">
               {movie.year && <span>{movie.year}</span>}
-              <span>•</span>
-              <span>{movie.genres?.slice(0, 2).join(' / ') || 'Feature Film'}</span>
-              <span>•</span>
-              <span className="text-cyan-300 font-mono font-semibold flex items-center gap-2">
-                <span>{audioTracks[selectedAudio]?.format || 'Dolby Audio 5.1'}</span>
-                {isAudioTranscoding && (
-                  <span className="px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-400/50 text-[9px] font-bold text-cyan-300 uppercase tracking-widest font-mono">
-                    AAC Transcode
-                  </span>
-                )}
+              {movie.genres && movie.genres.length > 0 && (
+                <>
+                  <span className="opacity-40" aria-hidden="true">·</span>
+                  <span>{movie.genres.slice(0, 2).join(' / ')}</span>
+                </>
+              )}
+              {movie.resolutionBadge && (
+                <>
+                  <span className="opacity-40" aria-hidden="true">·</span>
+                  <span className="text-[#E0E0E0]">{movie.resolutionBadge}</span>
+                </>
+              )}
+              <span className="opacity-40" aria-hidden="true">·</span>
+              <span className="font-mono text-[#E0E0E0]/80">
+                {audioTracks[selectedAudio]?.format || 'Stereo'}
               </span>
+              {isAudioTranscoding && (
+                <>
+                  <span className="opacity-40" aria-hidden="true">·</span>
+                  <span className="text-zinc-400 font-mono text-[10px] uppercase">AAC Transcode</span>
+                </>
+              )}
             </div>
           </div>
 
-          {/* Right Clock & Back Prompt */}
-          <div className="flex items-center gap-5">
-            {/* Live Clock */}
-            <div className="flex items-center gap-2 text-white/80 font-mono text-sm tracking-widest">
-              <Clock size={16} className="text-cyan-400" />
+          {/* Right Clock & Back Button */}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 text-[#9E9E9E] font-mono text-xs tracking-wider">
+              <Clock size={14} className="text-[#E0E0E0]" />
               <span>{clockString}</span>
             </div>
 
-            {/* Back Button */}
+            {/* Quick Skip to Credits button */}
+            {duration > 15 && (
+              <button
+                data-tv-focus="true"
+                onClick={() => {
+                  if (videoRef.current && duration > 0) {
+                    const target = movie?.creditsStartTime && movie.creditsStartTime > 0
+                      ? movie.creditsStartTime
+                      : duration * 0.95;
+                    videoRef.current.currentTime = target;
+                    setCurrentTime(target);
+                    setIsCreditsSkipping(true);
+                  }
+                }}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.16] text-[#E0E0E0] hover:text-[#FFFFFF] text-xs font-medium transition-all backdrop-blur-md cursor-pointer border border-white/[0.08] cinema-focus"
+                title="Jump to Credits / Up Next"
+              >
+                <FastForward size={13} />
+                <span className="tracking-wide">Credits</span>
+              </button>
+            )}
+
             <button 
+              data-tv-focus="true"
               onClick={handleClosePlayer}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold transition-all shadow-lg group backdrop-blur-md cursor-pointer"
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.16] text-[#E0E0E0] hover:text-[#FFFFFF] text-xs font-medium transition-all backdrop-blur-md cursor-pointer border border-white/[0.08] cinema-focus"
               title="Close player (Esc / Back)"
             >
-              <ArrowLeft size={14} className="group-hover:-translate-x-0.5 transition-transform" />
-              <span className="tracking-wider">BACK</span>
-              <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/20 text-[9px] font-mono text-white/70">ESC</kbd>
+              <ArrowLeft size={14} />
+              <span className="tracking-wider">Back</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[9px] font-mono text-[#9E9E9E]">ESC</kbd>
             </button>
           </div>
         </div>
 
-        {/* JEmby Bottom Bar: Glowing Timeline + Cinema Controls */}
-        <div className="w-full bg-gradient-to-t from-black/95 via-black/80 to-transparent pt-14 pb-5 px-10 md:px-14 flex flex-col gap-4 pointer-events-auto">
-          
-          {/* Cyan Scrubber Timeline */}
-          <div className="flex items-center gap-4 text-xs font-mono font-semibold text-white/80">
-            {/* Current Time */}
-            <span className="w-16 text-right tabular-nums text-cyan-300 drop-shadow">
-              {formatTime(currentTime)}
-            </span>
+        {/* Bottom Floating Control Bar with Subtle Glassmorphic Blur */}
+        <div className="w-full pb-6 px-6 md:px-12 flex flex-col items-center pointer-events-auto">
+          <div className="w-full max-w-5xl rounded-2xl bg-black/35 backdrop-blur-md border border-white/[0.06] p-4 md:px-6 md:py-4 shadow-[0_8px_32px_rgba(0,0,0,0.6)] flex flex-col gap-3">
+            
+            {/* Ultra-Minimalist Scrubber Timeline Bar */}
+            <div className="flex items-center gap-3.5 text-xs font-mono font-medium text-[#9E9E9E]">
+              {/* Current Time */}
+              <span className="w-14 text-right tabular-nums text-[#FFFFFF] text-xs">
+                {formatTime(currentTime)}
+              </span>
 
-            {/* Interactive Timeline Bar */}
-            <div 
-              ref={timelineRef}
-              onClick={handleTimelineClick}
-              onMouseEnter={() => setIsHoveringTimeline(true)}
-              onMouseLeave={() => setIsHoveringTimeline(false)}
-              onMouseMove={handleTimelineMouseMove}
-              className="relative flex-1 h-3 flex items-center cursor-pointer group"
-            >
-              {/* Background Track */}
-              <div className="w-full h-1.5 rounded-full bg-zinc-800/90 border border-white/10 overflow-hidden relative group-hover:h-2 transition-all">
-                {/* Glowing Cyan Filled Progress */}
+              {/* Timeline Container (Expands slightly on hover) */}
+              <div 
+                ref={timelineRef}
+                onClick={handleTimelineClick}
+                onMouseEnter={() => setIsHoveringTimeline(true)}
+                onMouseLeave={() => setIsHoveringTimeline(false)}
+                onMouseMove={handleTimelineMouseMove}
+                className="relative flex-1 h-5 flex items-center cursor-pointer group"
+              >
+                {/* Thin progress bar that slightly expands in height when hovered */}
+                <div className="w-full h-[3px] group-hover:h-[6px] rounded-full bg-white/20 overflow-hidden transition-all duration-200 ease-out relative">
+                  <div 
+                    className="h-full bg-[#FFFFFF] shadow-[0_0_8px_rgba(255,255,255,0.7)] relative transition-all"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                  {/* Credits Start Point Marker */}
+                  {duration > 15 && (
+                    <div 
+                      className="absolute top-0 bottom-0 w-[2px] bg-white/50 pointer-events-none"
+                      style={{ 
+                        left: `${movie?.creditsStartTime && movie.creditsStartTime > 0 ? (movie.creditsStartTime / duration) * 100 : 95}%` 
+                      }}
+                      title="Credits Start / Up Next"
+                    />
+                  )}
+                </div>
+
+                {/* Ultra-minimalist circular scrubber thumb */}
                 <div 
-                  className="h-full bg-gradient-to-r from-cyan-600 via-cyan-400 to-blue-500 shadow-[0_0_12px_rgba(6,182,212,0.9)] relative"
-                  style={{ width: `${progressPercent}%` }}
+                  className="absolute w-3.5 h-3.5 rounded-full bg-[#FFFFFF] shadow-[0_0_12px_rgba(255,255,255,0.9)] -translate-x-1/2 scale-0 group-hover:scale-100 transition-transform duration-150 pointer-events-none"
+                  style={{ left: `${progressPercent}%` }}
+                />
+
+                {/* Hover Tooltip Timestamp */}
+                {isHoveringTimeline && hoverTime !== null && (
+                  <div 
+                    className="absolute bottom-6 -translate-x-1/2 px-2.5 py-1 rounded-md bg-black/90 border border-white/20 text-[11px] font-mono text-[#FFFFFF] shadow-xl pointer-events-none backdrop-blur-md"
+                    style={{ left: `${hoverPosition}%` }}
+                  >
+                    {formatTime(hoverTime)}
+                  </div>
+                )}
+              </div>
+
+              {/* Remaining Time */}
+              <span className="w-14 tabular-nums text-[#9E9E9E] text-xs">
+                -{formatTime(remainingTime)}
+              </span>
+            </div>
+
+            {/* Ultra-Minimalist Playback Control Center */}
+            <div className="flex items-center justify-between pt-0.5">
+              {/* Left Controls: Volume */}
+              <div className="flex items-center gap-3 w-1/4">
+                <button 
+                  data-tv-focus="true"
+                  onClick={toggleMute}
+                  className="p-2 rounded-full text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-white/[0.08] transition-all cursor-pointer cinema-focus"
+                  title={isMuted ? "Unmute (M)" : "Mute (M)"}
+                >
+                  {isMuted ? <VolumeX size={17} className="text-zinc-400" /> : <Volume2 size={17} />}
+                </button>
+
+                <input 
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={isMuted ? 0 : volume}
+                  onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                  className="w-20 accent-white cursor-pointer opacity-70 hover:opacity-100 transition-opacity"
+                  title="Volume"
                 />
               </div>
 
-              {/* Circular Scrubber Thumb */}
-              <div 
-                className="absolute w-4 h-4 rounded-full bg-white border-2 border-cyan-400 shadow-[0_0_15px_#22d3ee] -translate-x-1/2 transform scale-75 group-hover:scale-110 transition-transform pointer-events-none"
-                style={{ left: `${progressPercent}%` }}
-              />
-
-              {/* Hover Tooltip Timestamp */}
-              {isHoveringTimeline && hoverTime !== null && (
-                <div 
-                  className="absolute bottom-6 -translate-x-1/2 px-2.5 py-1 rounded-md bg-zinc-900 border border-cyan-500 text-[11px] font-mono text-cyan-300 shadow-xl pointer-events-none backdrop-blur-md"
-                  style={{ left: `${hoverPosition}%` }}
-                >
-                  {formatTime(hoverTime)}
-                </div>
-              )}
-            </div>
-
-            {/* Remaining & Total Duration */}
-            <div className="flex items-center gap-1.5 w-28 tabular-nums text-white/60">
-              <span className="text-white/90">-{formatTime(remainingTime)}</span>
-            </div>
-          </div>
-
-          {/* JEmby Playback Control Center (Buttons Row) */}
-          <div className="flex items-center justify-between pt-1">
-            {/* Left Controls: Volume & Status */}
-            <div className="flex items-center gap-3 w-1/4">
-              <button 
-                onClick={toggleMute}
-                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white/80 hover:text-white transition-all backdrop-blur-md cursor-pointer"
-                title={isMuted ? "Unmute (M)" : "Mute (M)"}
-              >
-                {isMuted ? <VolumeX size={18} className="text-rose-400" /> : <Volume2 size={18} />}
-              </button>
-
-              <input 
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={isMuted ? 0 : volume}
-                onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                className="w-24 accent-cyan-400 cursor-pointer"
-                title="Volume"
-              />
-            </div>
-
-            {/* Center Controls: JEmby Cinema Media Bar */}
-            <div className="flex items-center gap-4 md:gap-6 justify-center flex-1">
-              {/* Jump -30s */}
-              <button 
-                onClick={() => seek(-30)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white/80 hover:text-white transition-all backdrop-blur-md cursor-pointer"
-                title="Jump back 30s"
-              >
-                <span className="text-xs font-semibold text-zinc-300">-30s</span>
-              </button>
-
-              {/* Rewind -10s */}
-              <button 
-                onClick={() => seek(-10)}
-                className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 flex items-center justify-center text-white/90 hover:text-white transition-all shadow-md active:scale-95 cursor-pointer"
-                title="Rewind 10s (←)"
-              >
-                <RotateCcw size={18} />
-              </button>
-
-              {/* Main Circular Play / Pause Button with Cyan Glow */}
-              <button 
-                onClick={togglePlay}
-                className="w-14 h-14 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white flex items-center justify-center shadow-[0_0_25px_rgba(6,182,212,0.6)] border-2 border-cyan-300 transform hover:scale-105 active:scale-95 transition-all relative group cursor-pointer"
-                title={isPlaying ? "Pause (Space / Enter)" : "Play (Space / Enter)"}
-              >
-                {isPlaying ? (
-                  <Pause size={24} className="fill-white" />
-                ) : (
-                  <Play size={24} className="fill-white ml-1" />
-                )}
-
-                {/* Status Indicator */}
-                <span className="absolute -bottom-2 px-2 py-0.5 rounded-full bg-black/85 border border-cyan-400/50 text-[9px] font-bold text-cyan-300 uppercase tracking-wider shadow-md">
-                  {isPlaying ? 'PAUSE' : 'PLAY'}
-                </span>
-              </button>
-
-              {/* Fast-Forward +10s */}
-              <button 
-                onClick={() => seek(10)}
-                className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 flex items-center justify-center text-white/90 hover:text-white transition-all shadow-md active:scale-95 cursor-pointer"
-                title="Forward 10s (→)"
-              >
-                <RotateCw size={18} />
-              </button>
-
-              {/* Jump +30s */}
-              <button 
-                onClick={() => seek(30)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white/80 hover:text-white transition-all backdrop-blur-md cursor-pointer"
-                title="Jump forward 30s"
-              >
-                <span className="text-xs font-semibold text-zinc-300">+30s</span>
-              </button>
-            </div>
-
-            {/* Right Controls: Subtitles, Audio Track & Fullscreen */}
-            <div className="flex items-center justify-end gap-3 w-1/4 relative">
-              {/* Audio Track Selector */}
-              <div className="relative">
+              {/* Center Controls: Minimalist Media Buttons */}
+              <div className="flex items-center gap-4 md:gap-5 justify-center flex-1">
+                {/* Rewind -10s */}
                 <button 
-                  onClick={() => {
-                    setShowAudioMenu(!showAudioMenu);
-                    setShowSubMenu(false);
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all backdrop-blur-md cursor-pointer ${
-                    showAudioMenu 
-                      ? 'bg-cyan-600 text-white border-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.6)]' 
-                      : 'bg-white/10 hover:bg-white/20 text-white/80 border-white/15'
-                  }`}
-                  title="Audio stream options"
+                  data-tv-focus="true"
+                  onClick={() => seek(-10)}
+                  className="p-2 rounded-full text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-white/[0.08] transition-all cursor-pointer cinema-focus active:scale-95"
+                  title="Rewind 10s (←)"
                 >
-                  <Music size={14} />
-                  <span className="hidden sm:inline">Audio</span>
+                  <RotateCcw size={18} />
                 </button>
 
-                {/* Audio Tracks Dropdown */}
-                {showAudioMenu && (
-                  <div className="absolute right-0 bottom-full mb-3 w-64 rounded-2xl bg-zinc-900/95 border border-cyan-500/50 shadow-[0_10px_35px_rgba(0,0,0,0.9)] p-2 z-50 backdrop-blur-xl">
-                    <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-400 border-b border-zinc-800 mb-1 flex items-center justify-between">
-                      <span>Audio Streams</span>
-                      <span className="font-mono text-cyan-400/70 text-[9px]">JEmby Cinema</span>
-                    </div>
-                    <div className="space-y-0.5 max-h-56 overflow-y-auto pr-1">
-                      {audioTracks.map((track, i) => {
-                        const isDirectCompatible = track.codec ? isAudioCodecSupported(track.codec) : true;
-                        return (
-                          <button
-                            key={i}
-                            onClick={() => switchAudioTrack(i)}
-                            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all cursor-pointer ${
-                              selectedAudio === i 
-                                ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 font-bold' 
-                                : 'text-zinc-300 hover:text-white hover:bg-white/10'
-                            }`}
-                          >
-                            <div className="pr-2">
-                              <div className="font-semibold">{track.lang}</div>
-                              <div className="text-[10px] text-zinc-400">{track.format}</div>
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              {isDirectCompatible && !isAudioTranscoding ? (
-                                <span className="px-1.5 py-0.5 rounded bg-emerald-950/70 border border-emerald-500/30 text-[8px] font-mono text-emerald-400 uppercase">
-                                  DIRECT
-                                </span>
-                              ) : (
-                                <span className="px-1.5 py-0.5 rounded bg-cyan-950/70 border border-cyan-500/30 text-[8px] font-mono text-cyan-300 uppercase">
-                                  AAC
-                                </span>
-                              )}
-                              {selectedAudio === i && <Check size={14} className="text-cyan-400" />}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
+                {/* Main Circular Play / Pause Button */}
+                <button 
+                  data-tv-focus="true"
+                  onClick={togglePlay}
+                  className="w-11 h-11 rounded-full bg-white/[0.14] hover:bg-white/[0.25] text-[#FFFFFF] flex items-center justify-center transition-all backdrop-blur-md shadow-[0_0_20px_rgba(255,255,255,0.18)] active:scale-95 cinema-focus cursor-pointer border border-white/[0.1]"
+                  title={isPlaying ? "Pause (Space / Enter)" : "Play (Space / Enter)"}
+                >
+                  {isPlaying ? (
+                    <Pause size={20} className="fill-white" />
+                  ) : (
+                    <Play size={20} className="fill-white ml-0.5" />
+                  )}
+                </button>
 
-                    {/* Quick Transcode Toggle: For troubleshooting audio silence */}
-                    <div className="mt-2 pt-2 border-t border-zinc-800">
-                      <button
-                        onClick={toggleAudioTranscode}
-                        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-zinc-800/80 hover:bg-zinc-700/80 text-[10px] text-zinc-300 hover:text-white transition-all cursor-pointer"
-                        title="If you experience silent audio, toggle forced AAC transcoding"
-                      >
-                        <span className="flex items-center gap-1.5 font-medium">
-                          <Sparkles size={11} className={isAudioTranscoding ? "text-cyan-400" : "text-zinc-500"} />
-                          <span>Force AAC Transcoding</span>
-                        </span>
-                        <span className={`px-1.5 py-0.5 rounded font-mono font-bold text-[9px] ${
-                          isAudioTranscoding ? 'bg-cyan-500 text-black' : 'bg-zinc-700 text-zinc-400'
-                        }`}>
-                          {isAudioTranscoding ? 'ON' : 'OFF'}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                )}
+                {/* Fast-Forward +10s */}
+                <button 
+                  data-tv-focus="true"
+                  onClick={() => seek(10)}
+                  className="p-2 rounded-full text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-white/[0.08] transition-all cursor-pointer cinema-focus active:scale-95"
+                  title="Forward 10s (→)"
+                >
+                  <RotateCw size={18} />
+                </button>
               </div>
 
-              {/* Subtitles Selector */}
-              <div className="relative">
-                <button 
-                  onClick={() => {
-                    setShowSubMenu(!showSubMenu);
-                    setShowAudioMenu(false);
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all backdrop-blur-md cursor-pointer ${
-                    showSubMenu || selectedSub !== null 
-                      ? 'bg-cyan-600 text-white border-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.6)]' 
-                      : 'bg-white/10 hover:bg-white/20 text-white/80 border-white/15'
-                  }`}
-                  title="Subtitles track options"
-                >
-                  <MessageSquare size={14} />
-                  <span className="hidden sm:inline">
-                    {selectedSub !== null ? 'Subtitles On' : 'Subtitles'}
-                  </span>
-                </button>
+              {/* Right Controls: Audio, Subtitles & Fullscreen */}
+              <div className="flex items-center justify-end gap-2.5 w-1/4 relative">
+                {/* Audio Track Selector */}
+                <div className="relative">
+                  <button 
+                    data-tv-focus="true"
+                    onClick={() => {
+                      setShowAudioMenu(!showAudioMenu);
+                      setShowSubMenu(false);
+                    }}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all backdrop-blur-md cursor-pointer border cinema-focus ${
+                      showAudioMenu 
+                        ? 'bg-white/[0.18] text-[#FFFFFF] border-white/30' 
+                        : 'bg-white/[0.06] hover:bg-white/[0.12] text-[#E0E0E0] hover:text-[#FFFFFF] border-white/[0.06]'
+                    }`}
+                    title="Audio stream options"
+                  >
+                    <Music size={14} />
+                    <span className="hidden sm:inline">Audio</span>
+                  </button>
 
-                {/* Subtitles Dropdown */}
-                {showSubMenu && (
-                  <div className="absolute right-0 bottom-full mb-3 w-56 rounded-2xl bg-zinc-900/95 border border-cyan-500/50 shadow-[0_10px_35px_rgba(0,0,0,0.9)] p-2 z-50 backdrop-blur-xl">
-                    <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-400 border-b border-zinc-800 mb-1 flex items-center justify-between">
-                      <span>Subtitles</span>
-                      <span className="font-mono text-cyan-400/70 text-[9px]">JEmby</span>
-                    </div>
-                    <div className="space-y-0.5">
-                      {/* Off Option */}
-                      <button
-                        onClick={() => {
-                          setSelectedSub(null);
-                          setShowSubMenu(false);
-                          showToast('Subtitles: Off');
-                        }}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all cursor-pointer ${
-                          selectedSub === null 
-                            ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 font-bold' 
-                            : 'text-zinc-300 hover:text-white hover:bg-white/10'
-                        }`}
-                      >
-                        <span>Off</span>
-                        {selectedSub === null && <Check size={14} className="text-cyan-400" />}
-                      </button>
-
-                      {/* Available Subtitle Tracks */}
-                      {subtitleTracks.length === 0 ? (
-                        <div className="px-3 py-2 text-[11px] text-zinc-500 italic">No subtitles available</div>
-                      ) : (
-                        subtitleTracks.map((track, i) => {
-                          const isSubActive = selectedSub === i;
+                  {/* Audio Tracks Dropdown */}
+                  {showAudioMenu && (
+                    <div className="absolute right-0 bottom-full mb-3 w-64 rounded-xl bg-black/90 border border-white/10 shadow-[0_12px_36px_rgba(0,0,0,0.9)] p-2 z-50 backdrop-blur-xl">
+                      <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#9E9E9E] border-b border-white/[0.08] mb-1 flex items-center justify-between">
+                        <span>Audio Streams</span>
+                        <span className="font-mono text-zinc-500 text-[9px]">Select</span>
+                      </div>
+                      <div className="space-y-0.5 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
+                        {audioTracks.map((track, i) => {
+                          const isDirectCompatible = track.codec ? isAudioCodecSupported(track.codec) : true;
                           return (
                             <button
-                              key={track.id || i}
-                              onClick={() => {
-                                setSelectedSub(i);
-                                setShowSubMenu(false);
-                                showToast(`Subtitles: ${track.label}`);
-                              }}
-                              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-left transition-all cursor-pointer ${
-                                isSubActive 
-                                  ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50 font-bold' 
-                                  : 'text-zinc-300 hover:text-white hover:bg-white/10'
+                              key={i}
+                              data-tv-focus="true"
+                              onClick={() => switchAudioTrack(i)}
+                              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs text-left transition-all cursor-pointer cinema-focus ${
+                                selectedAudio === i 
+                                  ? 'bg-white/[0.15] text-[#FFFFFF] font-semibold' 
+                                  : 'text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-white/[0.08]'
                               }`}
                             >
-                              <span className="truncate pr-2">{track.label}</span>
-                              {isSubActive && <Check size={14} className="text-cyan-400 shrink-0" />}
+                              <div className="pr-2">
+                                <div>{track.lang}</div>
+                                <div className="text-[10px] text-[#9E9E9E]">{track.format}</div>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {isDirectCompatible && !isAudioTranscoding ? (
+                                  <span className="text-[9px] font-mono text-emerald-400/80">DIRECT</span>
+                                ) : (
+                                  <span className="text-[9px] font-mono text-zinc-400">AAC</span>
+                                )}
+                                {selectedAudio === i && <Check size={14} className="text-[#FFFFFF]" />}
+                              </div>
                             </button>
                           );
-                        })
-                      )}
+                        })}
+                      </div>
+
+                      <div className="mt-2 pt-2 border-t border-white/[0.08]">
+                        <button
+                          data-tv-focus="true"
+                          onClick={toggleAudioTranscode}
+                          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-white/[0.08] text-[10px] text-[#9E9E9E] hover:text-[#FFFFFF] transition-all cursor-pointer cinema-focus"
+                        >
+                          <span>Force AAC Transcoding</span>
+                          <span className={`px-1.5 py-0.5 rounded font-mono font-bold text-[9px] ${
+                            isAudioTranscoding ? 'bg-white text-black' : 'bg-white/10 text-white/60'
+                          }`}>
+                            {isAudioTranscoding ? 'ON' : 'OFF'}
+                          </span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
+
+                {/* Subtitles Selector */}
+                <div className="relative">
+                  <button 
+                    data-tv-focus="true"
+                    onClick={() => {
+                      setShowSubMenu(!showSubMenu);
+                      setShowAudioMenu(false);
+                    }}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all backdrop-blur-md cursor-pointer border cinema-focus ${
+                      showSubMenu || selectedSub !== null 
+                        ? 'bg-white/[0.18] text-[#FFFFFF] border-white/30' 
+                        : 'bg-white/[0.06] hover:bg-white/[0.12] text-[#E0E0E0] hover:text-[#FFFFFF] border-white/[0.06]'
+                    }`}
+                    title="Subtitles track options"
+                  >
+                    <MessageSquare size={14} />
+                    <span className="hidden sm:inline">
+                      {selectedSub !== null ? 'Subtitles' : 'Subs'}
+                    </span>
+                  </button>
+
+                  {/* Subtitles Dropdown */}
+                  {showSubMenu && (
+                    <div className="absolute right-0 bottom-full mb-3 w-56 rounded-xl bg-black/90 border border-white/10 shadow-[0_12px_36px_rgba(0,0,0,0.9)] p-2 z-50 backdrop-blur-xl">
+                      <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#9E9E9E] border-b border-white/[0.08] mb-1 flex items-center justify-between">
+                        <span>Subtitles</span>
+                        <span className="font-mono text-zinc-500 text-[9px]">Select</span>
+                      </div>
+                      <div className="space-y-0.5 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
+                        <button
+                          data-tv-focus="true"
+                          onClick={() => {
+                            setSelectedSub(null);
+                            setShowSubMenu(false);
+                            showToast('Subtitles: Off');
+                          }}
+                          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs text-left transition-all cursor-pointer cinema-focus ${
+                            selectedSub === null 
+                              ? 'bg-white/[0.15] text-[#FFFFFF] font-semibold' 
+                              : 'text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-white/[0.08]'
+                          }`}
+                        >
+                          <span>Off</span>
+                          {selectedSub === null && <Check size={14} className="text-[#FFFFFF]" />}
+                        </button>
+
+                        {subtitleTracks.length === 0 ? (
+                          <div className="px-3 py-2 text-[11px] text-zinc-500 italic">No subtitles available</div>
+                        ) : (
+                          subtitleTracks.map((track, i) => {
+                            const isSubActive = selectedSub === i;
+                            return (
+                              <button
+                                key={track.id || i}
+                                data-tv-focus="true"
+                                onClick={() => {
+                                  setSelectedSub(i);
+                                  setShowSubMenu(false);
+                                  showToast(`Subtitles: ${track.label}`);
+                                }}
+                                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs text-left transition-all cursor-pointer cinema-focus ${
+                                  isSubActive 
+                                    ? 'bg-white/[0.15] text-[#FFFFFF] font-semibold' 
+                                    : 'text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-white/[0.08]'
+                                }`}
+                              >
+                                <span className="truncate pr-2">{track.label}</span>
+                                {isSubActive && <Check size={14} className="text-[#FFFFFF] shrink-0" />}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Player Settings (Ambient Glow, Playback Options) */}
+                <div className="relative">
+                  <button 
+                    data-tv-focus="true"
+                    onClick={() => {
+                      setShowSettingsMenu(!showSettingsMenu);
+                      setShowAudioMenu(false);
+                      setShowSubMenu(false);
+                    }}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all backdrop-blur-md cursor-pointer border cinema-focus ${
+                      showSettingsMenu || isAmbientGlowEnabled
+                        ? 'bg-white/[0.18] text-[#FFFFFF] border-white/30' 
+                        : 'bg-white/[0.06] hover:bg-white/[0.12] text-[#E0E0E0] hover:text-[#FFFFFF] border-white/[0.06]'
+                    }`}
+                    title="Player settings (Ambient Glow, Transcoding)"
+                  >
+                    <SettingsIcon size={14} className={showSettingsMenu ? 'rotate-45 transition-transform duration-300' : 'transition-transform duration-300'} />
+                    <span className="hidden sm:inline">Settings</span>
+                  </button>
+
+                  {/* Settings Dropdown Menu */}
+                  {showSettingsMenu && (
+                    <div className="absolute right-0 bottom-full mb-3 w-72 rounded-xl bg-black/95 border border-white/10 shadow-[0_12px_36px_rgba(0,0,0,0.95)] p-3 z-50 backdrop-blur-xl">
+                      <div className="px-1 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#9E9E9E] border-b border-white/[0.08] mb-2.5 flex items-center justify-between">
+                        <span>Player Settings</span>
+                        <kbd className="font-mono text-zinc-500 text-[9px]">G to toggle</kbd>
+                      </div>
+
+                      {/* Ambient Glow (Ambilight) Toggle Row */}
+                      <div className="p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.07] transition-colors border border-white/[0.06] flex items-center justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-[#FFFFFF]">
+                            <Sun size={13} className={isAmbientGlowEnabled ? 'text-amber-300' : 'text-[#9E9E9E]'} />
+                            <span>Ambient Glow</span>
+                          </div>
+                          <div className="text-[10px] text-[#9E9E9E] leading-tight">
+                            Dynamic edge backlighting (Ambilight)
+                          </div>
+                        </div>
+
+                        {/* Interactive Toggle Switch */}
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={isAmbientGlowEnabled}
+                          onClick={toggleAmbientGlow}
+                          className={`w-11 h-6 shrink-0 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200 ease-in-out cinema-focus ${
+                            isAmbientGlowEnabled 
+                              ? 'bg-[#FFFFFF] shadow-[0_0_12px_rgba(255,255,255,0.4)]' 
+                              : 'bg-white/20'
+                          }`}
+                          title={isAmbientGlowEnabled ? "Turn off Ambient Glow" : "Turn on Ambient Glow"}
+                        >
+                          <div
+                            className={`w-4 h-4 rounded-full transition-transform duration-200 ease-in-out shadow-sm ${
+                              isAmbientGlowEnabled ? 'translate-x-5 bg-[#000000]' : 'translate-x-0 bg-white/70'
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {/* Audio Transcode Toggle */}
+                      <div className="mt-2.5 pt-2 border-t border-white/[0.08]">
+                        <button
+                          data-tv-focus="true"
+                          onClick={toggleAudioTranscode}
+                          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-white/[0.08] text-[10px] text-[#9E9E9E] hover:text-[#FFFFFF] transition-all cursor-pointer cinema-focus"
+                        >
+                          <span>Force AAC Transcoding</span>
+                          <span className={`px-1.5 py-0.5 rounded font-mono font-bold text-[9px] ${
+                            isAudioTranscoding ? 'bg-white text-black' : 'bg-white/10 text-white/60'
+                          }`}>
+                            {isAudioTranscoding ? 'ON' : 'OFF'}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Fullscreen Button */}
+                <button 
+                  data-tv-focus="true"
+                  onClick={toggleFullscreen}
+                  className="p-2 rounded-xl text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-white/[0.08] transition-all cursor-pointer cinema-focus border border-white/[0.06]"
+                  title="Toggle Fullscreen (F)"
+                >
+                  {isFullscreen ? <Minimize size={15} /> : <Maximize size={15} />}
+                </button>
               </div>
-
-              {/* Fullscreen Button */}
-              <button 
-                onClick={toggleFullscreen}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white/80 hover:text-white transition-all backdrop-blur-md cursor-pointer"
-                title="Toggle Fullscreen (F)"
-              >
-                {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
-                <span className="text-xs font-medium hidden sm:inline">{isFullscreen ? 'Exit Full' : 'Fullscreen'}</span>
-              </button>
             </div>
+
+            {/* Quiet Keyboard & TV Remote Navigation Legend */}
+            <div className="pt-2 border-t border-white/[0.05] flex items-center justify-between text-[10px] text-[#9E9E9E] font-medium tracking-wide">
+              <div className="flex items-center gap-4 flex-wrap">
+                <span><kbd className="text-[#FFFFFF] font-mono">Space</kbd> Play/Pause</span>
+                <span><kbd className="text-[#FFFFFF] font-mono">← / →</kbd> Seek 10s</span>
+                <span><kbd className="text-[#FFFFFF] font-mono">↑ / ↓</kbd> Volume</span>
+                <span><kbd className="text-[#FFFFFF] font-mono">M</kbd> Mute</span>
+                <span><kbd className="text-[#FFFFFF] font-mono">G</kbd> Glow</span>
+                <span><kbd className="text-[#FFFFFF] font-mono">F</kbd> Fullscreen</span>
+                <span><kbd className="text-[#FFFFFF] font-mono">Esc</kbd> Return</span>
+              </div>
+              <span className="hidden md:inline text-zinc-500 font-mono text-[9px]">Cinema Mode</span>
+            </div>
+
           </div>
-
-          {/* JEmby Navigation & Remote Legend Bar (Bottom Strip) */}
-          <div className="pt-3 border-t border-white/10 flex items-center justify-between text-[11px] font-medium text-white/60 tracking-wider">
-            <div className="flex items-center gap-5 flex-wrap">
-              <span className="flex items-center gap-1.5">
-                <kbd className="px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 font-mono text-[10px]">
-                  OK / Space
-                </kbd>
-                <span>Play / Pause</span>
-              </span>
-
-              <span className="flex items-center gap-1.5">
-                <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-white/90 font-mono text-[10px]">
-                  Esc / Back
-                </kbd>
-                <span>Return</span>
-              </span>
-
-              <span className="flex items-center gap-1.5">
-                <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-white/90 font-mono text-[10px]">
-                  ← / →
-                </kbd>
-                <span>Seek 10s</span>
-              </span>
-
-              <span className="flex items-center gap-1.5">
-                <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-white/90 font-mono text-[10px]">
-                  I
-                </kbd>
-                <span>Toggle HUD</span>
-              </span>
-
-              <span className="flex items-center gap-1.5">
-                <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-white/90 font-mono text-[10px]">
-                  F
-                </kbd>
-                <span>Fullscreen</span>
-              </span>
-            </div>
-
-            <div className="hidden md:flex items-center gap-2 text-cyan-400 font-mono text-[10px]">
-              <Sparkles size={12} className="text-cyan-400" />
-              <span>JEmby Cinema Edition</span>
-            </div>
-          </div>
-
         </div>
 
       </div>

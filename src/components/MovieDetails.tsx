@@ -47,7 +47,7 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           data-tv-modal="true"
-          className="fixed inset-0 z-40 bg-black flex text-white"
+          className="fixed inset-0 z-40 bg-[#000000] flex text-[#E0E0E0]"
         >
           {/* Background Backdrop for Details */}
           <div className="absolute inset-0 z-0">
@@ -56,11 +56,11 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                 <img 
                   src={movie.backdrop} 
                   alt="" 
-                  className="w-full h-full object-cover" 
+                  className="w-full h-full object-cover opacity-35" 
                 />
-                {/* Complex gradient overlay to blend into background */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/20" />
-                <div className="absolute inset-0 bg-gradient-to-r from-black via-black/80 to-transparent w-full md:w-2/3" />
+                {/* Complex gradient overlay to blend into pitch black background */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-black/30" />
+                <div className="absolute inset-0 bg-gradient-to-r from-black via-black/90 to-transparent w-full md:w-3/4" />
               </>
             )}
           </div>
@@ -72,12 +72,12 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
               <button 
                 data-tv-focus="true"
                 onClick={onClose}
-                className="flex items-center gap-2 text-white/70 hover:text-white transition-colors group focus:outline-none focus:ring-4 focus:ring-cyan-400 focus:scale-105 rounded-full px-2 py-1"
+                className="flex items-center gap-2 text-[#9E9E9E] hover:text-[#FFFFFF] transition-colors group focus:outline-none rounded-full px-2 py-1 cinema-focus"
               >
-                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition-colors backdrop-blur-md">
-                  <ArrowLeft size={20} />
+                <div className="w-10 h-10 rounded-full bg-white/[0.06] flex items-center justify-center group-hover:bg-white/[0.12] transition-colors backdrop-blur-md border border-white/[0.08]">
+                  <ArrowLeft size={18} />
                 </div>
-                <span className="font-medium tracking-wide">Back (Esc)</span>
+                <span className="font-medium tracking-wide text-xs sm:text-sm">Back (Esc)</span>
               </button>
             </div>
 
@@ -89,8 +89,8 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                 transition={{ delay: 0.2 }}
                 tabIndex={0}
                 data-tv-focus="true"
-                className="shrink-0 w-64 md:w-80 lg:w-96 relative group cursor-pointer focus:outline-none focus:ring-4 focus:ring-cyan-400 rounded-2xl"
-                onClick={onPlay}
+                className="shrink-0 w-64 md:w-80 lg:w-96 relative group cursor-pointer focus:outline-none rounded-2xl cinema-focus"
+                onClick={() => onPlay()}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
@@ -98,16 +98,16 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                   }
                 }}
               >
-                <div className="aspect-[2/3] rounded-2xl overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.8)] border-2 border-white/10 transition-colors group-hover:border-cyan-400 group-focus:border-cyan-400">
+                <div className="aspect-[2/3] rounded-2xl overflow-hidden shadow-[0_24px_50px_rgba(0,0,0,0.95)] border border-white/[0.08] transition-all bg-[#000000]">
                   {movie.poster ? (
-                    <img src={movie.poster} alt={movie.title} className="w-full h-full object-cover" />
+                    <img src={movie.poster} alt={movie.title} className="w-full h-full object-cover opacity-90" />
                   ) : (
-                    <div className="w-full h-full bg-zinc-800" />
+                    <div className="w-full h-full bg-[#000000]" />
                   )}
                   {/* Play button overlay */}
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
-                    <div className="w-20 h-20 rounded-full bg-cyan-600/80 flex items-center justify-center text-white border border-cyan-300 shadow-[0_0_30px_rgba(6,182,212,0.8)]">
-                      <Play fill="currentColor" size={32} className="ml-2" />
+                  <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-xs">
+                    <div className="w-16 h-16 rounded-full bg-white/[0.15] backdrop-blur-md flex items-center justify-center text-[#FFFFFF] border border-white/[0.25] shadow-[0_0_24px_rgba(255,255,255,0.25)]">
+                      <Play fill="currentColor" size={26} className="ml-1" />
                     </div>
                   </div>
                 </div>
@@ -121,38 +121,38 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                 className="flex flex-col justify-center flex-1 max-w-3xl pt-2"
               >
                 {/* Title & Metadata */}
-                <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 drop-shadow-lg tracking-tight">
+                <h1 className="cinema-title text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-[#FFFFFF] mb-4 drop-shadow-lg tracking-wide">
                   {movie.title}
                 </h1>
                 
-                <div className="flex flex-wrap items-center gap-4 mb-5 text-white/90 font-semibold text-lg md:text-xl">
+                <div className="flex flex-wrap items-center gap-3 mb-5 text-[#E0E0E0] font-medium text-sm md:text-base">
                   {movie.rating && (
-                    <div className="flex items-center gap-1.5">
-                      <Star className="fill-amber-400 text-amber-400" size={20} />
-                      <span>{movie.rating}</span>
+                    <div className="flex items-center gap-1.5 text-amber-300">
+                      <Star className="fill-amber-300" size={17} />
+                      <span className="font-semibold">{movie.rating}</span>
                     </div>
                   )}
                   {movie.contentRating && (
-                    <span className="bg-white/20 px-2 py-0.5 rounded text-sm font-bold border border-white/40 backdrop-blur-sm uppercase">
+                    <span className="bg-white/[0.06] px-2 py-0.5 rounded text-xs font-semibold border border-white/[0.08] uppercase">
                       {movie.contentRating}
                     </span>
                   )}
                   {movie.year && <span>{movie.year}</span>}
-                  <span>-</span>
+                  <span className="text-[#9E9E9E]">·</span>
                   {movie.runtime && <span>{formatRuntime(movie.runtime)}</span>}
                   
                   {/* Media Badges */}
                   {(movie.hdrBadge || !movie.resolutionBadge) && (
-                    <span className="bg-white/20 px-2 py-0.5 rounded text-[11px] font-bold tracking-widest border border-white/40 backdrop-blur-sm uppercase">
+                    <span className="bg-white/[0.06] px-2 py-0.5 rounded text-[10px] font-semibold tracking-wider border border-white/[0.08] uppercase text-[#E0E0E0]">
                       {movie.hdrBadge || 'HDR10+'}
                     </span>
                   )}
-                  <span className="bg-white/20 px-2 py-0.5 rounded text-[11px] font-bold tracking-widest border border-white/40 backdrop-blur-sm uppercase">
+                  <span className="bg-white/[0.06] px-2 py-0.5 rounded text-[10px] font-semibold tracking-wider border border-white/[0.08] uppercase text-[#E0E0E0]">
                     {movie.resolutionBadge || 'UHD'}
                   </span>
                 </div>
 
-                {/* Primary Action Button Row (TV Remote optimized) */}
+                {/* Primary Action Button Row (TV Remote optimized with soft glowing outline) */}
                 <div className="flex flex-wrap items-center gap-4 mb-7">
                   {hasResume ? (
                     <>
@@ -160,21 +160,21 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                         autoFocus
                         data-tv-focus="true"
                         onClick={() => onPlay(movie.playbackPositionSeconds)}
-                        className="flex items-center gap-3 px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-base shadow-[0_0_25px_rgba(6,182,212,0.6)] focus:outline-none focus:ring-4 focus:ring-cyan-300 transform focus:scale-105 transition-all cursor-pointer"
+                        className="flex items-center gap-3 px-7 py-3 rounded-xl bg-white/[0.16] hover:bg-white/[0.24] text-[#FFFFFF] font-semibold text-sm shadow-[0_0_24px_rgba(255,255,255,0.18)] border border-white/[0.2] transition-all cursor-pointer cinema-focus"
                       >
-                        <Play size={20} fill="currentColor" />
-                        <span>Resume from {Math.floor((movie.playbackPositionSeconds || 0) / 60)}m ({Math.round(movie.playbackPercentage || 0)}%)</span>
-                        <span className="px-1.5 py-0.5 rounded bg-black/30 border border-white/20 text-[10px] font-mono ml-2">ENTER</span>
+                        <Play size={18} fill="currentColor" />
+                        <span>Resume ({Math.floor((movie.playbackPositionSeconds || 0) / 60)}m)</span>
+                        <span className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 text-[9px] font-mono text-[#9E9E9E]">ENTER</span>
                       </button>
 
                       <button
                         data-tv-focus="true"
                         onClick={() => onPlay(0)}
-                        className="flex items-center gap-2 px-5 py-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/90 hover:text-white font-semibold text-sm border border-white/20 focus:outline-none focus:ring-4 focus:ring-cyan-400 focus:scale-105 transition-all cursor-pointer"
+                        className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-[#E0E0E0] hover:text-[#FFFFFF] font-medium text-sm border border-white/[0.08] transition-all cursor-pointer cinema-focus"
                         title="Play from start"
                       >
-                        <RotateCcw size={16} />
-                        <span>Start from Beginning</span>
+                        <RotateCcw size={15} />
+                        <span>Start Over</span>
                       </button>
                     </>
                   ) : (
@@ -182,59 +182,59 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                       autoFocus
                       data-tv-focus="true"
                       onClick={() => onPlay(0)}
-                      className="flex items-center gap-3 px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-base shadow-[0_0_25px_rgba(6,182,212,0.6)] focus:outline-none focus:ring-4 focus:ring-cyan-300 transform focus:scale-105 transition-all cursor-pointer"
+                      className="flex items-center gap-3 px-8 py-3 rounded-xl bg-white/[0.16] hover:bg-white/[0.24] text-[#FFFFFF] font-semibold text-base shadow-[0_0_24px_rgba(255,255,255,0.18)] border border-white/[0.2] transition-all cursor-pointer cinema-focus"
                     >
-                      <Play size={20} fill="currentColor" />
+                      <Play size={18} fill="currentColor" />
                       <span>Play Movie</span>
-                      <span className="px-1.5 py-0.5 rounded bg-black/30 border border-white/20 text-[10px] font-mono ml-2">ENTER</span>
+                      <span className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 text-[9px] font-mono text-[#9E9E9E]">ENTER</span>
                     </button>
                   )}
                 </div>
                 
                 {/* Audio/Subtitles row */}
-                <div className="flex flex-wrap items-center gap-6 mb-8 text-white/70 text-sm font-medium">
+                <div className="flex flex-wrap items-center gap-6 mb-7 text-[#9E9E9E] text-xs font-medium">
                   {movie.audioTracks && movie.audioTracks.length > 0 ? (
                     movie.audioTracks.map((audio, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <span className="text-white/50">{audio.lang}</span>
-                        <span className="font-bold text-white">{audio.format}</span>
+                      <div key={i} className="flex items-center gap-1.5">
+                        <span className="text-[#9E9E9E]">{audio.lang}</span>
+                        <span className="font-semibold text-[#E0E0E0]">{audio.format}</span>
                       </div>
                     ))
                   ) : (
                     <>
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/50">ENG</span>
-                        <span className="font-bold text-white">dts:X</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[#9E9E9E]">ENG</span>
+                        <span className="font-semibold text-[#E0E0E0]">Dolby Atmos</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/50">FRE</span>
-                        <span className="font-bold text-white">Dolby 5.1</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[#9E9E9E]">FRE</span>
+                        <span className="font-semibold text-[#E0E0E0]">Dolby 5.1</span>
                       </div>
                     </>
                   )}
                   <div className="flex items-center gap-2">
-                    <span className="text-white/50 border border-white/30 rounded px-1 text-[10px]">CC</span>
-                    <span className="text-white">{movie.subtitles && movie.subtitles.length > 0 ? movie.subtitles.join(' • ') : 'ENG • FRE'}</span>
+                    <span className="text-[#9E9E9E] border border-white/15 rounded px-1 text-[9px]">CC</span>
+                    <span className="text-[#E0E0E0]">{movie.subtitles && movie.subtitles.length > 0 ? movie.subtitles.join(' · ') : 'ENG · FRE'}</span>
                   </div>
                 </div>
 
                 {/* Overview */}
-                <div className="mb-10">
-                  <p className="text-white/90 text-base md:text-lg leading-relaxed font-light drop-shadow-md">
+                <div className="mb-8">
+                  <p className="text-[#E0E0E0] text-sm md:text-base leading-relaxed font-normal">
                     {movie.overview || 'No overview available.'}
                   </p>
                 </div>
 
                 {/* Additional Info Table */}
-                <div className="grid grid-cols-[100px_1fr] md:grid-cols-[120px_1fr] gap-y-3 text-sm md:text-base">
-                  <div className="text-white/60 font-bold tracking-wider uppercase text-xs md:text-sm pt-1">Categories</div>
-                  <div className="text-white font-medium">{movie.genres ? movie.genres.join(', ') : '-'}</div>
+                <div className="grid grid-cols-[90px_1fr] md:grid-cols-[110px_1fr] gap-y-2.5 text-xs md:text-sm">
+                  <div className="text-[#9E9E9E] font-medium uppercase tracking-wider text-[11px] pt-0.5">Genres</div>
+                  <div className="text-[#E0E0E0] font-normal">{movie.genres ? movie.genres.join(', ') : '-'}</div>
                   
-                  <div className="text-white/60 font-bold tracking-wider uppercase text-xs md:text-sm pt-1">Director</div>
-                  <div className="text-white font-medium">{movie.director || '-'}</div>
+                  <div className="text-[#9E9E9E] font-medium uppercase tracking-wider text-[11px] pt-0.5">Director</div>
+                  <div className="text-[#E0E0E0] font-normal">{movie.director || '-'}</div>
                   
-                  <div className="text-white/60 font-bold tracking-wider uppercase text-xs md:text-sm pt-1">Cast</div>
-                  <div className="text-white font-medium">{movie.cast ? movie.cast.join(', ') : '-'}</div>
+                  <div className="text-[#9E9E9E] font-medium uppercase tracking-wider text-[11px] pt-0.5">Cast</div>
+                  <div className="text-[#E0E0E0] font-normal">{movie.cast ? movie.cast.join(', ') : '-'}</div>
                 </div>
               </motion.div>
             </div>

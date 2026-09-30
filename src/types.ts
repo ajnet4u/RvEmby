@@ -22,6 +22,11 @@ export interface AudioTrackInfo {
 export interface Movie {
   id: string;
   title: string;
+  seriesId?: string;
+  seriesName?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  creditsStartTime?: number; // timestamp in seconds where credits begin
   year?: number;
   overview?: string;
   runtime?: number; // in minutes
@@ -92,6 +97,7 @@ export interface Episode {
   audioTracks?: AudioTrackInfo[];
   subtitles?: string[];
   subtitleTracks?: SubtitleTrack[];
+  creditsStartTime?: number; // timestamp in seconds where credits begin
   playbackPositionSeconds?: number;
   playbackPercentage?: number;
   lastWatchedAt?: number;

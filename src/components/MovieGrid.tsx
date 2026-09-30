@@ -23,6 +23,7 @@ interface MovieGridProps {
   movies: Movie[];
   onHover: (movie: Movie | null) => void;
   onSelect: (movie: Movie) => void;
+  onPlay?: (movie: Movie, resumeSeconds?: number) => void;
   viewMode?: 'carousel' | 'grid';
   onToggleViewMode?: () => void;
   sortField?: SortField;
@@ -36,6 +37,7 @@ export function MovieGrid({
   movies, 
   onHover, 
   onSelect,
+  onPlay,
   viewMode = 'carousel',
   onToggleViewMode,
   sortField = 'title',
@@ -346,7 +348,7 @@ export function MovieGrid({
               }}
               onClick={() => onSelect(movie)}
             >
-              <div className="aspect-[2/3] rounded-xl overflow-hidden shadow-lg transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_20px_35px_rgba(0,0,0,0.8)] group-hover:ring-4 ring-white group-focus:ring-4 group-focus:ring-cyan-400 group-focus:border-cyan-400 group-focus:-translate-y-2 group-focus:shadow-[0_0_35px_rgba(6,182,212,0.9)] relative border-2 border-transparent group-hover:border-white">
+              <div className="aspect-[2/3] rounded-xl overflow-hidden shadow-lg transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_16px_32px_rgba(0,0,0,0.9)] group-hover:ring-1 group-hover:ring-white/30 group-hover:shadow-[0_0_20px_rgba(255,255,255,0.15)] group-focus:ring-2 group-focus:ring-white/40 group-focus:-translate-y-2 group-focus:shadow-[0_0_25px_rgba(255,255,255,0.25)] relative border border-white/[0.04] bg-[#000000]">
                 {movie.poster ? (
                   <img 
                     src={movie.poster} 
@@ -355,35 +357,43 @@ export function MovieGrid({
                     loading="lazy"
                   />
                 ) : (
-                  <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-400 p-3 text-center text-xs">
+                  <div className="w-full h-full bg-[#000000] flex items-center justify-center text-[#9E9E9E] p-3 text-center text-xs">
                     <span>{movie.title}</span>
                   </div>
                 )}
                 
                 {movie.resolutionBadge && (
-                  <div className="absolute top-1 right-1 bg-black/75 px-1.5 py-0.5 rounded text-[9px] font-bold text-white uppercase backdrop-blur-sm border border-white/20">
+                  <div className="absolute top-1 right-1 bg-black/85 px-1.5 py-0.5 rounded text-[9px] font-bold text-[#E0E0E0] uppercase backdrop-blur-sm border border-white/[0.08]">
                     {movie.resolutionBadge}
                   </div>
                 )}
 
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity flex items-center justify-center">
-                  <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/40 shadow-lg">
+                <div 
+                  onClick={(e) => {
+                    if (onPlay) {
+                      e.stopPropagation();
+                      onPlay(movie, movie.playbackPositionSeconds);
+                    }
+                  }}
+                  className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-white/[0.16] hover:bg-white/[0.28] hover:scale-110 active:scale-95 backdrop-blur-md flex items-center justify-center text-[#FFFFFF] border border-white/[0.25] shadow-xl transition-all">
                     <Play size={20} fill="currentColor" className="ml-1" />
                   </div>
                 </div>
 
                 {/* Progress bar for in-progress movies */}
                 {movie.playbackPercentage && movie.playbackPercentage > 0 ? (
-                  <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-black/70 overflow-hidden">
+                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/80 overflow-hidden">
                     <div 
-                      className="h-full bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.9)]" 
+                      className="h-full bg-[#FFFFFF] shadow-[0_0_8px_rgba(255,255,255,0.8)]" 
                       style={{ width: `${movie.playbackPercentage}%` }} 
                     />
                   </div>
                 ) : null}
               </div>
-              <p className="mt-2 text-xs font-semibold text-white/90 truncate drop-shadow group-focus:text-cyan-300">{movie.title}</p>
-              <p className="text-[10px] text-zinc-400">{movie.year || ''}</p>
+              <p className="mt-2 text-xs font-medium text-[#E0E0E0] group-hover:text-[#FFFFFF] group-focus:text-[#FFFFFF] truncate drop-shadow">{movie.title}</p>
+              <p className="text-[10px] text-[#9E9E9E]">{movie.year || ''}</p>
             </motion.div>
           ))}
         </div>
@@ -443,7 +453,7 @@ export function MovieGrid({
                 onClick={() => onSelect(movie)}
               >
                 {/* Poster Container */}
-                <div className="w-36 md:w-48 lg:w-56 aspect-[2/3] rounded-xl overflow-hidden shadow-lg transition-all duration-300 group-hover:-translate-y-4 group-hover:shadow-[0_20px_40px_rgba(0,0,0,0.7)] group-hover:ring-4 ring-white group-focus:ring-4 group-focus:ring-cyan-400 group-focus:border-cyan-400 group-focus:-translate-y-4 group-focus:shadow-[0_0_35px_rgba(6,182,212,0.9)] relative border-2 border-transparent group-hover:border-white">
+                <div className="w-36 md:w-48 lg:w-56 aspect-[2/3] rounded-xl overflow-hidden shadow-lg transition-all duration-300 group-hover:-translate-y-3 group-hover:shadow-[0_20px_40px_rgba(0,0,0,0.9)] group-hover:ring-1 group-hover:ring-white/30 group-hover:shadow-[0_0_24px_rgba(255,255,255,0.18)] group-focus:ring-2 group-focus:ring-white/40 group-focus:-translate-y-3 group-focus:shadow-[0_0_28px_rgba(255,255,255,0.3)] relative border border-white/[0.04] bg-[#000000]">
                   {movie.poster ? (
                     <img 
                       src={movie.poster} 
@@ -453,37 +463,45 @@ export function MovieGrid({
                       draggable={false}
                     />
                   ) : (
-                    <div className="w-full h-full bg-zinc-800/80 backdrop-blur flex items-center justify-center text-zinc-400 p-4 text-center border border-white/10">
+                    <div className="w-full h-full bg-[#000000] flex items-center justify-center text-[#9E9E9E] p-4 text-center border border-white/[0.04]">
                       <span className="text-sm font-medium">{movie.title}</span>
                     </div>
                   )}
                   
                   {/* Top Badge: 4K / UHD / Resolution */}
                   {movie.resolutionBadge && (
-                    <div className="absolute top-1 right-1 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[10px] font-bold text-white border border-white/20">
+                    <div className="absolute top-1 right-1 bg-black/85 backdrop-blur-md px-2 py-0.5 rounded text-[10px] font-bold text-[#E0E0E0] border border-white/[0.08]">
                       {movie.resolutionBadge}
                     </div>
                   )}
                   
                   {/* Play Overlay */}
-                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                    <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.2)] transform scale-75 group-hover:scale-100 group-focus:scale-100 transition-transform duration-300 border border-white/40">
-                      <Play className="text-white ml-1" fill="currentColor" size={24} />
+                  <div 
+                    onClick={(e) => {
+                      if (onPlay) {
+                        e.stopPropagation();
+                        onPlay(movie, movie.playbackPositionSeconds);
+                      }
+                    }}
+                    className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity duration-300 flex items-center justify-center cursor-pointer"
+                  >
+                    <div className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-white/[0.16] hover:bg-white/[0.28] hover:scale-110 active:scale-95 backdrop-blur-md flex items-center justify-center shadow-[0_0_24px_rgba(255,255,255,0.25)] transform scale-80 group-hover:scale-100 group-focus:scale-100 transition-all duration-300 border border-white/[0.25]">
+                      <Play className="text-[#FFFFFF] ml-0.5" fill="currentColor" size={20} />
                     </div>
                   </div>
 
                   {/* Progress bar for in-progress movies */}
                   {movie.playbackPercentage && movie.playbackPercentage > 0 ? (
-                    <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-black/70 overflow-hidden">
+                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/80 overflow-hidden">
                       <div 
-                        className="h-full bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.9)]" 
+                        className="h-full bg-[#FFFFFF] shadow-[0_0_8px_rgba(255,255,255,0.8)]" 
                         style={{ width: `${movie.playbackPercentage}%` }} 
                       />
                     </div>
                   ) : null}
                 </div>
 
-                <p className="mt-2 text-xs font-semibold text-white/90 truncate w-36 md:w-48 lg:w-56 drop-shadow group-focus:text-cyan-300">
+                <p className="mt-2 text-xs font-medium text-[#E0E0E0] group-hover:text-[#FFFFFF] group-focus:text-[#FFFFFF] truncate w-36 md:w-48 lg:w-56 drop-shadow">
                   {movie.title}
                 </p>
               </motion.div>

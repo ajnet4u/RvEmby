@@ -47,11 +47,11 @@ export function ContinueWatchingRow({
       {/* Section Title Bar */}
       <div className="flex items-center justify-between mb-3 px-1">
         <div className="flex items-center gap-2.5">
-          <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#22d3ee]" />
-          <h2 className="text-xs md:text-sm font-extrabold tracking-widest uppercase text-white/90">
+          <div className="w-1.5 h-1.5 rounded-full bg-white/70 shadow-[0_0_8px_rgba(255,255,255,0.7)]" />
+          <h2 className="cinema-title text-xs md:text-sm font-semibold tracking-wider uppercase text-[#FFFFFF]">
             Continue Watching
           </h2>
-          <span className="text-[11px] font-medium text-white/40 tracking-wider">
+          <span className="text-[11px] font-medium text-[#9E9E9E] tracking-wider">
             ({movies.length})
           </span>
         </div>
@@ -60,17 +60,17 @@ export function ContinueWatchingRow({
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => scroll('left')}
-            className="p-1 rounded-full bg-white/5 hover:bg-white/15 text-white/60 hover:text-white border border-white/10 transition-colors cursor-pointer"
+            className="p-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.1] text-[#9E9E9E] hover:text-[#FFFFFF] border border-white/[0.06] transition-colors cursor-pointer cinema-focus"
             title="Scroll Left"
           >
-            <ChevronLeft size={16} />
+            <ChevronLeft size={15} />
           </button>
           <button
             onClick={() => scroll('right')}
-            className="p-1 rounded-full bg-white/5 hover:bg-white/15 text-white/60 hover:text-white border border-white/10 transition-colors cursor-pointer"
+            className="p-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.1] text-[#9E9E9E] hover:text-[#FFFFFF] border border-white/[0.06] transition-colors cursor-pointer cinema-focus"
             title="Scroll Right"
           >
-            <ChevronRight size={16} />
+            <ChevronRight size={15} />
           </button>
         </div>
       </div>
@@ -105,29 +105,29 @@ export function ContinueWatchingRow({
                 }
               }}
               onClick={() => onPlay(movie, movie.playbackPositionSeconds)}
-              className="group relative w-60 sm:w-64 md:w-72 aspect-video shrink-0 rounded-xl overflow-hidden bg-zinc-900 border border-white/15 hover:border-cyan-400/80 focus:border-cyan-400 shadow-lg hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] focus:shadow-[0_0_30px_rgba(6,182,212,0.9)] focus:outline-none focus:ring-4 focus:ring-cyan-400 focus:scale-105 transition-all duration-300 cursor-pointer transform hover:-translate-y-1 focus:-translate-y-1 z-10 focus:z-30"
+              className="group relative w-60 sm:w-64 md:w-72 aspect-video shrink-0 rounded-xl overflow-hidden bg-[#000000] border border-white/[0.04] hover:border-white/[0.15] focus:border-white/[0.3] shadow-lg hover:shadow-[0_0_20px_rgba(255,255,255,0.12)] focus:shadow-[0_0_25px_rgba(255,255,255,0.25)] focus:outline-none focus:ring-2 focus:ring-white/40 focus:scale-105 transition-all duration-300 cursor-pointer transform hover:-translate-y-1 focus:-translate-y-1 z-10 focus:z-30 cinema-focus"
             >
               {/* Backdrop / Poster Image */}
               {imageSrc ? (
                 <img
                   src={imageSrc}
                   alt={movie.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90"
                   loading="lazy"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center bg-zinc-800 text-zinc-500 font-mono text-xs">
+                <div className="w-full h-full flex items-center justify-center bg-[#000000] text-[#9E9E9E] font-mono text-xs">
                   {movie.title}
                 </div>
               )}
 
               {/* Gradient Scrim */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-transparent" />
 
               {/* Center Play Button (Reveals on Hover / Focus) */}
               <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity duration-200">
-                <div className="w-11 h-11 rounded-full bg-cyan-500 text-black flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.8)] transform scale-90 group-hover:scale-100 group-focus:scale-100 transition-transform">
-                  <Play size={18} className="fill-black ml-0.5" />
+                <div className="w-11 h-11 rounded-full bg-white/[0.15] backdrop-blur-md text-[#FFFFFF] border border-white/[0.25] flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.3)] transform scale-90 group-hover:scale-100 group-focus:scale-100 transition-transform">
+                  <Play size={18} className="fill-[#FFFFFF] ml-0.5" />
                 </div>
               </div>
 
@@ -138,7 +138,7 @@ export function ContinueWatchingRow({
                     e.stopPropagation();
                     onDismiss(movie.id);
                   }}
-                  className="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white/50 hover:text-white hover:bg-black/90 border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                  className="absolute top-2 right-2 p-1 rounded-full bg-black/70 text-[#9E9E9E] hover:text-[#FFFFFF] hover:bg-black/95 border border-white/[0.08] opacity-0 group-hover:opacity-100 transition-opacity z-10 cinema-focus"
                   title="Remove from continue watching"
                 >
                   <X size={12} />
@@ -147,23 +147,23 @@ export function ContinueWatchingRow({
 
               {/* Bottom Metadata & Progress Information */}
               <div className="absolute bottom-2.5 left-3 right-3 flex flex-col gap-1 pointer-events-none">
-                <h3 className="text-xs md:text-sm font-bold text-white truncate drop-shadow">
+                <h3 className="text-xs md:text-sm font-semibold text-[#FFFFFF] truncate drop-shadow">
                   {movie.title}
                 </h3>
-                <div className="flex items-center gap-2 text-[10px] md:text-[11px] text-white/70 font-medium">
-                  <span className="flex items-center gap-1 text-cyan-300">
-                    <Clock size={11} />
+                <div className="flex items-center gap-2 text-[10px] md:text-[11px] text-[#E0E0E0] font-medium">
+                  <span className="flex items-center gap-1 text-[#E0E0E0]">
+                    <Clock size={11} className="text-[#9E9E9E]" />
                     {remainingText}
                   </span>
-                  <span>·</span>
-                  <span>{percentage}% watched</span>
+                  <span className="text-[#9E9E9E]">·</span>
+                  <span className="text-[#9E9E9E]">{percentage}% watched</span>
                 </div>
               </div>
 
               {/* Glowing Progress Bar across card bottom edge */}
-              <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20 overflow-hidden">
+              <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/10 overflow-hidden">
                 <div
-                  className="h-full bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.9)] transition-all duration-300"
+                  className="h-full bg-[#FFFFFF] shadow-[0_0_8px_rgba(255,255,255,0.8)] transition-all duration-300"
                   style={{ width: `${percentage}%` }}
                 />
               </div>

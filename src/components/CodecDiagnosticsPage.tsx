@@ -104,32 +104,32 @@ ${profile.codecs.map(c => `[${c.supported ? 'YES' : 'NO'}] ${c.name} (${c.mimeTy
   const hardwareDecodedCount = profile ? profile.codecs.filter(c => c.powerEfficient).length : 0;
 
   return (
-    <div className="flex-1 h-full overflow-y-auto custom-scrollbar p-6 md:p-10 select-none text-white font-sans">
+    <div className="flex-1 h-full overflow-y-auto custom-scrollbar p-6 md:p-10 select-none text-[#E0E0E0] font-sans bg-[#000000]">
       <div className="max-w-6xl mx-auto space-y-8 pb-16">
         
         {/* Page Title & Actions */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/[0.06] pb-6">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
               {onBackToHome && (
                 <button
                   onClick={onBackToHome}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 text-xs font-semibold text-zinc-300 hover:text-white transition-all cursor-pointer shadow-sm"
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-[#E0E0E0] hover:text-[#FFFFFF] transition-all cursor-pointer shadow-sm cinema-focus"
                   title="Return to Movies (Esc)"
                 >
                   <ArrowLeft size={14} />
                   <span>Back</span>
                 </button>
               )}
-              <div className="flex items-center gap-2 text-cyan-400 text-xs font-bold tracking-widest uppercase">
+              <div className="flex items-center gap-2 text-[#9E9E9E] text-xs font-semibold tracking-widest uppercase">
                 <Cpu size={16} />
                 <span>Hardware Diagnostics & Codec Inspector</span>
               </div>
             </div>
-            <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
+            <h1 className="cinema-title text-2xl md:text-3xl font-bold text-[#FFFFFF] tracking-wide">
               Device Media & Codec Capabilities
             </h1>
-            <p className="text-xs md:text-sm text-zinc-400">
+            <p className="text-xs md:text-sm text-[#9E9E9E]">
               Live hardware inspection of video/audio decoders and Emby Direct Play compatibility.
             </p>
           </div>
@@ -138,16 +138,16 @@ ${profile.codecs.map(c => `[${c.supported ? 'YES' : 'NO'}] ${c.name} (${c.mimeTy
             <button
               onClick={runScan}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-xs font-semibold text-white transition-all disabled:opacity-50 cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-[#E0E0E0] hover:text-[#FFFFFF] transition-all disabled:opacity-50 cursor-pointer cinema-focus"
             >
-              <RotateCw size={14} className={loading ? 'animate-spin text-cyan-400' : ''} />
+              <RotateCw size={14} className={loading ? 'animate-spin text-white' : ''} />
               <span>{loading ? 'Testing...' : 'Re-scan Hardware'}</span>
             </button>
 
             <button
               onClick={handleCopyReport}
               disabled={!profile}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-400/50 text-xs font-semibold text-cyan-200 transition-all cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.12] hover:bg-white/[0.2] border border-white/[0.18] text-xs font-medium text-[#FFFFFF] transition-all cursor-pointer cinema-focus"
             >
               {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
               <span>{copied ? 'Copied Specs!' : 'Copy Hardware Report'}</span>
@@ -159,60 +159,60 @@ ${profile.codecs.map(c => `[${c.supported ? 'YES' : 'NO'}] ${c.name} (${c.mimeTy
         {profile && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Metric 1: Video Codecs */}
-            <div className="p-5 rounded-2xl bg-zinc-900/80 border border-white/10 flex flex-col justify-between">
+            <div className="p-5 rounded-2xl bg-black border border-white/[0.06] flex flex-col justify-between shadow-lg">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Video Decoders</span>
-                <Video size={18} className="text-cyan-400" />
+                <span className="text-xs font-medium text-[#9E9E9E] uppercase tracking-wider">Video Decoders</span>
+                <Video size={18} className="text-[#9E9E9E]" />
               </div>
-              <div className="text-2xl font-black text-white tabular-nums">
-                {videoSupportedCount} <span className="text-sm font-normal text-zinc-500">/ {videoTotalCount}</span>
+              <div className="text-2xl font-bold text-[#FFFFFF] tabular-nums">
+                {videoSupportedCount} <span className="text-sm font-normal text-[#9E9E9E]">/ {videoTotalCount}</span>
               </div>
-              <div className="text-[11px] text-zinc-400 mt-2 flex items-center gap-1.5">
+              <div className="text-[11px] text-[#9E9E9E] mt-2 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 <span>H.264, VP9 {profile.codecs.some(c => c.id.includes('hevc') && c.supported) ? '+ HEVC' : ''}</span>
               </div>
             </div>
 
             {/* Metric 2: Audio Codecs */}
-            <div className="p-5 rounded-2xl bg-zinc-900/80 border border-white/10 flex flex-col justify-between">
+            <div className="p-5 rounded-2xl bg-black border border-white/[0.06] flex flex-col justify-between shadow-lg">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Audio Decoders</span>
-                <Volume2 size={18} className="text-cyan-400" />
+                <span className="text-xs font-medium text-[#9E9E9E] uppercase tracking-wider">Audio Decoders</span>
+                <Volume2 size={18} className="text-[#9E9E9E]" />
               </div>
-              <div className="text-2xl font-black text-white tabular-nums">
-                {audioSupportedCount} <span className="text-sm font-normal text-zinc-500">/ {audioTotalCount}</span>
+              <div className="text-2xl font-bold text-[#FFFFFF] tabular-nums">
+                {audioSupportedCount} <span className="text-sm font-normal text-[#9E9E9E]">/ {audioTotalCount}</span>
               </div>
-              <div className="text-[11px] text-zinc-400 mt-2 flex items-center gap-1.5">
+              <div className="text-[11px] text-[#9E9E9E] mt-2 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 <span>AAC, Opus, FLAC, MP3, PCM</span>
               </div>
             </div>
 
             {/* Metric 3: Display & HDR */}
-            <div className="p-5 rounded-2xl bg-zinc-900/80 border border-white/10 flex flex-col justify-between">
+            <div className="p-5 rounded-2xl bg-black border border-white/[0.06] flex flex-col justify-between shadow-lg">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Display & HDR</span>
-                <Tv size={18} className="text-cyan-400" />
+                <span className="text-xs font-medium text-[#9E9E9E] uppercase tracking-wider">Display & HDR</span>
+                <Tv size={18} className="text-[#9E9E9E]" />
               </div>
-              <div className="text-lg font-bold text-white truncate">
+              <div className="text-lg font-semibold text-[#FFFFFF] truncate">
                 {profile.isHdrSupported ? 'HDR10 / High Dynamic' : 'Standard Dynamic (SDR)'}
               </div>
-              <div className="text-[11px] text-zinc-400 mt-2 flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full ${profile.isHdrSupported ? 'bg-cyan-400' : 'bg-zinc-500'}`} />
+              <div className="text-[11px] text-[#9E9E9E] mt-2 flex items-center gap-1.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${profile.isHdrSupported ? 'bg-white' : 'bg-[#9E9E9E]'}`} />
                 <span>{profile.screenResolution.split('(')[0]} · {profile.colorDepth}-bit</span>
               </div>
             </div>
 
             {/* Metric 4: Hardware Acceleration */}
-            <div className="p-5 rounded-2xl bg-zinc-900/80 border border-white/10 flex flex-col justify-between">
+            <div className="p-5 rounded-2xl bg-black border border-white/[0.06] flex flex-col justify-between shadow-lg">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Hardware Decoding</span>
+                <span className="text-xs font-medium text-[#9E9E9E] uppercase tracking-wider">Hardware Decoding</span>
                 <Zap size={18} className="text-amber-400" />
               </div>
-              <div className="text-2xl font-black text-white tabular-nums">
-                {hardwareDecodedCount} <span className="text-sm font-normal text-zinc-500">Codecs HW</span>
+              <div className="text-2xl font-bold text-[#FFFFFF] tabular-nums">
+                {hardwareDecodedCount} <span className="text-sm font-normal text-[#9E9E9E]">Codecs HW</span>
               </div>
-              <div className="text-[11px] text-zinc-400 mt-2 flex items-center gap-1.5">
+              <div className="text-[11px] text-[#9E9E9E] mt-2 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                 <span>Zero-load GPU playback</span>
               </div>
@@ -221,25 +221,25 @@ ${profile.codecs.map(c => `[${c.supported ? 'YES' : 'NO'}] ${c.name} (${c.mimeTy
         )}
 
         {/* Emby Direct Play Notice */}
-        <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800 flex items-start gap-3 text-xs text-zinc-400">
-          <Server size={18} className="text-cyan-400 shrink-0 mt-0.5" />
+        <div className="p-4 rounded-xl bg-black border border-white/[0.06] flex items-start gap-3 text-xs text-[#9E9E9E]">
+          <Server size={18} className="text-[#9E9E9E] shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <span className="font-semibold text-zinc-200">How JEmby handles codec compatibility:</span>
+            <span className="font-semibold text-[#E0E0E0]">How JEmby handles codec compatibility:</span>
             <p>
-              Formats marked <strong className="text-emerald-400">Direct Play</strong> stream natively from your Emby / Jellyfin server without transcoding, consuming virtually 0% server CPU power. Formats marked <strong className="text-zinc-400">Emby Transcode</strong> are automatically re-encoded in real time by your Emby server into compatible H.264/AAC streams.
+              Formats marked <strong className="text-emerald-400">Direct Play</strong> stream natively from your Emby / Jellyfin server without transcoding, consuming virtually 0% server CPU power. Formats marked <strong className="text-[#9E9E9E]">Emby Transcode</strong> are automatically re-encoded in real time by your Emby server into compatible H.264/AAC streams.
             </p>
           </div>
         </div>
 
         {/* Codec Filter Tabs & Quick Search */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-b border-white/[0.06] pb-4">
           <div className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
             <button
               onClick={() => setActiveTab('all')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+              className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer shrink-0 cinema-focus ${
                 activeTab === 'all' 
-                  ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(6,182,212,0.6)]' 
-                  : 'bg-white/5 hover:bg-white/10 text-white/70'
+                  ? 'bg-white/[0.18] text-[#FFFFFF] border border-white/[0.25] shadow-[0_0_12px_rgba(255,255,255,0.15)]' 
+                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-[#9E9E9E] hover:text-[#FFFFFF]'
               }`}
             >
               All Formats ({profile?.codecs.length || 0})
@@ -247,10 +247,10 @@ ${profile.codecs.map(c => `[${c.supported ? 'YES' : 'NO'}] ${c.name} (${c.mimeTy
 
             <button
               onClick={() => setActiveTab('video')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+              className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer shrink-0 cinema-focus ${
                 activeTab === 'video' 
-                  ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(6,182,212,0.6)]' 
-                  : 'bg-white/5 hover:bg-white/10 text-white/70'
+                  ? 'bg-white/[0.18] text-[#FFFFFF] border border-white/[0.25] shadow-[0_0_12px_rgba(255,255,255,0.15)]' 
+                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-[#9E9E9E] hover:text-[#FFFFFF]'
               }`}
             >
               Video Codecs ({videoTotalCount})
@@ -258,10 +258,10 @@ ${profile.codecs.map(c => `[${c.supported ? 'YES' : 'NO'}] ${c.name} (${c.mimeTy
 
             <button
               onClick={() => setActiveTab('audio')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+              className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer shrink-0 cinema-focus ${
                 activeTab === 'audio' 
-                  ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(6,182,212,0.6)]' 
-                  : 'bg-white/5 hover:bg-white/10 text-white/70'
+                  ? 'bg-white/[0.18] text-[#FFFFFF] border border-white/[0.25] shadow-[0_0_12px_rgba(255,255,255,0.15)]' 
+                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-[#9E9E9E] hover:text-[#FFFFFF]'
               }`}
             >
               Audio Codecs ({audioTotalCount})
@@ -269,10 +269,10 @@ ${profile.codecs.map(c => `[${c.supported ? 'YES' : 'NO'}] ${c.name} (${c.mimeTy
 
             <button
               onClick={() => setActiveTab('container')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+              className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer shrink-0 cinema-focus ${
                 activeTab === 'container' 
-                  ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(6,182,212,0.6)]' 
-                  : 'bg-white/5 hover:bg-white/10 text-white/70'
+                  ? 'bg-white/[0.18] text-[#FFFFFF] border border-white/[0.25] shadow-[0_0_12px_rgba(255,255,255,0.15)]' 
+                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-[#9E9E9E] hover:text-[#FFFFFF]'
               }`}
             >
               Containers & Streams ({profile?.codecs.filter(c => c.category === 'container').length || 0})
@@ -281,18 +281,18 @@ ${profile.codecs.map(c => `[${c.supported ? 'YES' : 'NO'}] ${c.name} (${c.mimeTy
 
           {/* Quick Search */}
           <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9E9E9E] pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search codecs (e.g. hevc, ac3, hdr)..."
-              className="w-full sm:w-64 pl-8 pr-7 py-1.5 rounded-lg bg-black/60 border border-white/15 focus:border-cyan-400 text-white placeholder-zinc-500 text-xs focus:outline-none transition-all"
+              className="w-full sm:w-64 pl-8 pr-7 py-1.5 rounded-lg bg-black border border-white/[0.1] focus:border-white/30 text-[#FFFFFF] placeholder-[#9E9E9E]/50 text-xs focus:outline-none transition-all cinema-focus"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white p-0.5 rounded-full"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[#9E9E9E] hover:text-[#FFFFFF] p-0.5 rounded-full"
               >
                 <X size={12} />
               </button>
@@ -303,7 +303,7 @@ ${profile.codecs.map(c => `[${c.supported ? 'YES' : 'NO'}] ${c.name} (${c.mimeTy
         {/* Codec Details List */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {filteredCodecs.length === 0 ? (
-            <div className="col-span-2 text-center py-12 text-zinc-500 text-sm">
+            <div className="col-span-2 text-center py-12 text-[#9E9E9E] text-sm">
               No matching codecs found for "{searchQuery}".
             </div>
           ) : (
@@ -311,10 +311,10 @@ ${profile.codecs.map(c => `[${c.supported ? 'YES' : 'NO'}] ${c.name} (${c.mimeTy
               <div
                 key={codec.id}
                 tabIndex={0}
-                className={`p-4 rounded-xl border transition-all flex items-start justify-between gap-4 outline-none focus:ring-2 focus:ring-cyan-400 ${
+                className={`p-4 rounded-xl border transition-all flex items-start justify-between gap-4 outline-none cinema-focus ${
                   codec.supported 
-                    ? 'bg-zinc-900/70 border-white/10 hover:border-cyan-500/40' 
-                    : 'bg-zinc-950/40 border-zinc-800/60 opacity-60'
+                    ? 'bg-black border-white/[0.06] hover:border-white/[0.15]' 
+                    : 'bg-black border-white/[0.02] opacity-50'
                 }`}
               >
                 <div className="space-y-1.5 flex-1 pr-2">

@@ -122,34 +122,34 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave, onOpen
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
-      <div className="w-full max-w-xl rounded-2xl bg-zinc-900/95 p-8 shadow-2xl border border-zinc-700/60 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
+      <div className="w-full max-w-xl rounded-2xl bg-[#000000] p-8 shadow-2xl border border-white/[0.08] max-h-[90vh] overflow-y-auto text-[#E0E0E0]">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
-              <Server size={22} />
+            <div className="w-10 h-10 rounded-xl bg-white/[0.08] border border-white/[0.12] flex items-center justify-center text-[#FFFFFF]">
+              <Server size={20} />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-white tracking-wide">Emby & Jellyfin Connection</h2>
-              <p className="text-xs text-zinc-400">Configure connection to your Emby or Jellyfin media server</p>
+              <h2 className="cinema-title text-xl font-bold text-[#FFFFFF] tracking-wide">Emby & Jellyfin Connection</h2>
+              <p className="text-xs text-[#9E9E9E]">Configure connection to your Emby or Jellyfin media server</p>
             </div>
           </div>
           <button 
             onClick={handleClose}
-            className="text-zinc-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-zinc-800 cursor-pointer"
+            className="text-[#9E9E9E] hover:text-[#FFFFFF] transition-colors p-1.5 rounded-lg hover:bg-white/[0.06] cursor-pointer cinema-focus"
           >
-            <X size={22} />
+            <X size={20} />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider flex items-center justify-between">
+            <label className="text-xs font-semibold text-[#E0E0E0] uppercase tracking-wider flex items-center justify-between">
               <span className="flex items-center gap-2">
-                <Server size={14} className="text-cyan-400" />
+                <Server size={14} className="text-[#9E9E9E]" />
                 Server Address (IP:Port or Domain)
               </span>
-              <span className="text-[11px] text-zinc-500 font-normal">e.g. CasaOS IP or LAN</span>
+              <span className="text-[11px] text-[#9E9E9E] font-normal">e.g. CasaOS IP or LAN</span>
             </label>
             <input
               type="text"
@@ -159,17 +159,17 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave, onOpen
                 setTestResult(null);
               }}
               placeholder="http://192.168.10.146:8096"
-              className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all text-sm font-mono"
+              className="w-full rounded-lg bg-black border border-white/[0.1] px-4 py-3 text-[#FFFFFF] placeholder-[#9E9E9E]/50 focus:outline-none focus:border-white/30 transition-all text-sm font-mono cinema-focus"
             />
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider flex items-center justify-between">
+            <label className="text-xs font-semibold text-[#E0E0E0] uppercase tracking-wider flex items-center justify-between">
               <span className="flex items-center gap-2">
-                <Key size={14} className="text-cyan-400" />
+                <Key size={14} className="text-[#9E9E9E]" />
                 Emby API Key
               </span>
-              <span className="text-[11px] text-zinc-500 font-normal">Dashboard &gt; Advanced &gt; API Keys</span>
+              <span className="text-[11px] text-[#9E9E9E] font-normal">Dashboard &gt; Advanced &gt; API Keys</span>
             </label>
             <input
               type="password"
@@ -179,7 +179,7 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave, onOpen
                 setTestResult(null);
               }}
               placeholder="Paste your 32-character API key"
-              className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all text-sm font-mono"
+              className="w-full rounded-lg bg-black border border-white/[0.1] px-4 py-3 text-[#FFFFFF] placeholder-[#9E9E9E]/50 focus:outline-none focus:border-white/30 transition-all text-sm font-mono cinema-focus"
             />
           </div>
 
@@ -201,27 +201,27 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave, onOpen
 
           {/* Sync with TV / New Device (Quick-Connect & QR Code) */}
           {apiKey.trim() && (
-            <div className="rounded-xl bg-zinc-950/70 border border-cyan-500/30 p-4 space-y-3">
+            <div className="rounded-xl bg-black border border-white/[0.08] p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-semibold text-cyan-300">
-                  <Smartphone size={16} className="text-cyan-400" />
+                <div className="flex items-center gap-2 text-xs font-semibold text-[#FFFFFF]">
+                  <Smartphone size={16} className="text-[#9E9E9E]" />
                   <span>Sync to New Device (Smart TV / Phone)</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowSyncSection(!showSyncSection)}
-                  className="text-xs font-medium text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
+                  className="text-xs font-medium text-[#E0E0E0] hover:text-[#FFFFFF] underline cursor-pointer cinema-focus"
                 >
                   {showSyncSection ? 'Hide QR Code' : 'Show QR & Quick Link'}
                 </button>
               </div>
 
-              <p className="text-[11px] text-zinc-400 leading-relaxed">
+              <p className="text-[11px] text-[#9E9E9E] leading-relaxed">
                 Connect any other TV, tablet, or phone instantly without typing your API key manually on the new device.
               </p>
 
               {showSyncSection && (
-                <div className="pt-2 border-t border-zinc-800/80 flex flex-col sm:flex-row items-center gap-4">
+                <div className="pt-2 border-t border-white/[0.06] flex flex-col sm:flex-row items-center gap-4">
                   {qrDataUrl && (
                     <div className="p-2 bg-white rounded-xl shadow-lg shrink-0">
                       <img src={qrDataUrl} alt="Quick connect QR code" className="w-32 h-32 block" />
@@ -229,8 +229,8 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave, onOpen
                   )}
 
                   <div className="space-y-2 flex-1 text-xs">
-                    <div className="text-zinc-200 font-medium">How to connect your new device:</div>
-                    <ul className="list-disc list-inside space-y-1 text-zinc-400 text-[11px]">
+                    <div className="text-[#E0E0E0] font-medium">How to connect your new device:</div>
+                    <ul className="list-disc list-inside space-y-1 text-[#9E9E9E] text-[11px]">
                       <li>Scan this QR code with your mobile camera to open JEmby pre-configured.</li>
                       <li>Or copy the Quick-Connect link below and open it in your Smart TV browser.</li>
                       <li>Server settings are automatically shared across your local network.</li>
@@ -239,7 +239,7 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave, onOpen
                     <button
                       type="button"
                       onClick={handleCopySyncLink}
-                      className="mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-400/50 text-cyan-200 text-xs font-semibold transition-all cursor-pointer"
+                      className="mt-2 flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-white/[0.1] hover:bg-white/[0.18] border border-white/[0.15] text-[#FFFFFF] text-xs font-medium transition-all cursor-pointer cinema-focus"
                     >
                       {copiedLink ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
                       <span>{copiedLink ? 'Copied Quick Link!' : 'Copy Quick-Connect Link'}</span>
@@ -251,32 +251,32 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave, onOpen
           )}
 
           {/* Setup Help */}
-          <div className="rounded-xl bg-zinc-950/60 border border-zinc-800/80 p-4 space-y-2 text-xs text-zinc-400">
-            <div className="flex items-center gap-1.5 font-medium text-zinc-200">
-              <HelpCircle size={15} className="text-cyan-400" />
+          <div className="rounded-xl bg-black border border-white/[0.06] p-4 space-y-2 text-xs text-[#9E9E9E]">
+            <div className="flex items-center gap-1.5 font-medium text-[#E0E0E0]">
+              <HelpCircle size={15} className="text-[#9E9E9E]" />
               <span>How to get your Emby API Key:</span>
             </div>
-            <ol className="list-decimal list-inside space-y-1 text-zinc-400 pl-1">
-              <li>Log in to your Emby server (e.g. <span className="text-zinc-300 font-mono">192.168.10.146:8096</span>)</li>
+            <ol className="list-decimal list-inside space-y-1 text-[#9E9E9E] pl-1">
+              <li>Log in to your Emby server (e.g. <span className="text-[#E0E0E0] font-mono">192.168.10.146:8096</span>)</li>
               <li>Click the gear icon (Settings / Server Dashboard)</li>
-              <li>Under <strong className="text-zinc-300">Advanced</strong> on the left, click <strong className="text-zinc-300">API Keys</strong></li>
-              <li>Click <strong className="text-zinc-300">New API Key</strong>, name it "JEmby", and copy the token</li>
+              <li>Under <strong className="text-[#E0E0E0]">Advanced</strong> on the left, click <strong className="text-[#E0E0E0]">API Keys</strong></li>
+              <li>Click <strong className="text-[#E0E0E0]">New API Key</strong>, name it "JEmby", and copy the token</li>
             </ol>
-            <div className="pt-1.5 border-t border-zinc-800/60 text-[11px] text-zinc-500">
+            <div className="pt-1.5 border-t border-white/[0.06] text-[11px] text-[#9E9E9E]/70">
               Works with both <strong>Emby</strong> and <strong>Jellyfin</strong> servers on CasaOS, TrueNAS, Unraid, or Windows/Linux.
             </div>
           </div>
 
           {onOpenCodecs && (
-            <div className="pt-3 border-t border-zinc-800/80 flex items-center justify-between text-xs">
-              <span className="text-zinc-400">Want to test hardware codec support?</span>
+            <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between text-xs">
+              <span className="text-[#9E9E9E]">Want to test hardware codec support?</span>
               <button
                 type="button"
                 onClick={() => {
                   handleClose();
                   onOpenCodecs();
                 }}
-                className="text-cyan-400 hover:text-cyan-300 font-semibold underline transition-colors cursor-pointer"
+                className="text-[#FFFFFF] hover:underline font-medium transition-colors cursor-pointer cinema-focus"
               >
                 Inspect Device Codecs →
               </button>
@@ -288,9 +288,9 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave, onOpen
               type="button"
               onClick={handleTest}
               disabled={testing}
-              className="px-4 py-2.5 rounded-lg border border-zinc-700 hover:border-cyan-500/50 bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-xs font-semibold flex items-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
+              className="px-4 py-2.5 rounded-lg border border-white/[0.1] hover:border-white/[0.2] bg-white/[0.06] hover:bg-white/[0.12] text-[#E0E0E0] hover:text-[#FFFFFF] text-xs font-medium flex items-center gap-2 transition-all disabled:opacity-50 cursor-pointer cinema-focus"
             >
-              {testing ? <Loader2 size={14} className="animate-spin text-cyan-400" /> : <Server size={14} className="text-cyan-400" />}
+              {testing ? <Loader2 size={14} className="animate-spin text-white" /> : <Server size={14} className="text-[#9E9E9E]" />}
               Test Connection
             </button>
 
@@ -298,13 +298,13 @@ export function SettingsModal({ isOpen, onClose, currentSettings, onSave, onOpen
               <button
                 type="button"
                 onClick={handleClose}
-                className="px-5 py-2.5 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors text-xs font-semibold cursor-pointer"
+                className="px-5 py-2.5 rounded-lg text-[#9E9E9E] hover:text-[#FFFFFF] hover:bg-white/[0.06] transition-colors text-xs font-medium cursor-pointer cinema-focus"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-6 py-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition-all shadow-[0_0_15px_rgba(8,145,178,0.4)] cursor-pointer"
+                className="px-6 py-2.5 rounded-lg bg-white/[0.18] hover:bg-white/[0.28] text-[#FFFFFF] border border-white/[0.25] text-xs font-semibold transition-all shadow-[0_0_20px_rgba(255,255,255,0.15)] cursor-pointer cinema-focus"
               >
                 Save & Connect
               </button>

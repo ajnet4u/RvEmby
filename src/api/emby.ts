@@ -277,6 +277,7 @@ const EMBY_ITEM_FIELDS = [
   'OfficialRating',
   'People',
   'MediaStreams',
+  'Chapters',
   'UserData'
 ].join(',');
 
@@ -423,6 +424,19 @@ export function mapEmbyItemToMovie(item: any, baseUrl: string, settings: ServerS
     }
   }
 
+  // Credits start time detection from Jellyfin / Emby chapter markers
+  let creditsStartTime: number | undefined = undefined;
+  if (item.Chapters && Array.isArray(item.Chapters)) {
+    const creditsChapter = item.Chapters.find((ch: any) => {
+      const type = (ch.MarkerType || '').toLowerCase();
+      const name = (ch.Name || '').toLowerCase();
+      return type.includes('credits') || type.includes('outro') || name.includes('credits') || name.includes('end credits') || name.includes('outro');
+    });
+    if (creditsChapter && creditsChapter.StartPositionTicks) {
+      creditsStartTime = Math.floor(creditsChapter.StartPositionTicks / 10000000);
+    }
+  }
+
   return {
     id: item.Id,
     mediaSourceId,
@@ -443,6 +457,7 @@ export function mapEmbyItemToMovie(item: any, baseUrl: string, settings: ServerS
     audioTracks: audioTracks.length > 0 ? audioTracks : undefined,
     subtitles: subtitleLabels.length > 0 ? subtitleLabels : undefined,
     subtitleTracks: subtitleTracks.length > 0 ? subtitleTracks : undefined,
+    creditsStartTime,
     playbackPositionSeconds,
     playbackPercentage,
     lastWatchedAt: item.UserData?.LastPlayedDate ? new Date(item.UserData.LastPlayedDate).getTime() : undefined
@@ -593,6 +608,10 @@ export function episodeToPlayableMovie(episode: Episode): Movie {
   const padEpisode = episode.episodeNumber.toString().padStart(2, '0');
   return {
     id: episode.id,
+    seriesId: episode.seriesId,
+    seriesName: episode.seriesName,
+    seasonNumber: episode.seasonNumber,
+    episodeNumber: episode.episodeNumber,
     mediaSourceId: episode.mediaSourceId || episode.id,
     title: `${episode.seriesName} • S${padSeason}E${padEpisode} "${episode.title}"`,
     overview: episode.overview,
@@ -606,6 +625,7 @@ export function episodeToPlayableMovie(episode: Episode): Movie {
     audioTracks: episode.audioTracks,
     subtitles: episode.subtitles,
     subtitleTracks: episode.subtitleTracks,
+    creditsStartTime: episode.creditsStartTime,
     playbackPositionSeconds: episode.playbackPositionSeconds,
     playbackPercentage: episode.playbackPercentage,
     lastWatchedAt: episode.lastWatchedAt
@@ -814,6 +834,19 @@ export async function fetchEmbyEpisodes(
         }
       }
 
+      // Credits start time detection from Jellyfin / Emby chapter markers
+      let creditsStartTime: number | undefined = undefined;
+      if (item.Chapters && Array.isArray(item.Chapters)) {
+        const creditsChapter = item.Chapters.find((ch: any) => {
+          const type = (ch.MarkerType || '').toLowerCase();
+          const name = (ch.Name || '').toLowerCase();
+          return type.includes('credits') || type.includes('outro') || name.includes('credits') || name.includes('end credits') || name.includes('outro');
+        });
+        if (creditsChapter && creditsChapter.StartPositionTicks) {
+          creditsStartTime = Math.floor(creditsChapter.StartPositionTicks / 10000000);
+        }
+      }
+
       return {
         id: item.Id,
         seriesId,
@@ -834,6 +867,7 @@ export async function fetchEmbyEpisodes(
         audioTracks: audioTracks.length > 0 ? audioTracks : undefined,
         subtitles: subtitleTracks.map(t => t.label),
         subtitleTracks: subtitleTracks.length > 0 ? subtitleTracks : undefined,
+        creditsStartTime,
         playbackPositionSeconds,
         playbackPercentage,
         lastWatchedAt: item.UserData?.LastPlayedDate ? new Date(item.UserData.LastPlayedDate).getTime() : undefined

@@ -18,38 +18,38 @@ export function TvRemoteOverlay({ visible, isPlaying = false }: TvRemoteOverlayP
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 15 }}
           transition={{ duration: 0.25 }}
-          className="fixed bottom-4 right-4 z-30 pointer-events-none hidden sm:flex items-center gap-3 px-3.5 py-1.5 rounded-full bg-black/80 backdrop-blur-md border border-cyan-500/40 shadow-[0_0_20px_rgba(6,182,212,0.3)] text-xs text-white/90 select-none font-sans"
+          className="fixed bottom-4 right-4 z-30 pointer-events-none hidden sm:flex items-center gap-3 px-3.5 py-1.5 rounded-full bg-black/90 backdrop-blur-md border border-white/[0.1] shadow-[0_0_24px_rgba(255,255,255,0.08)] text-xs text-[#E0E0E0] select-none font-sans"
         >
-          <div className="flex items-center gap-1.5 text-cyan-400 font-semibold uppercase tracking-wider text-[10px]">
-            <Tv size={14} className="animate-pulse" />
+          <div className="flex items-center gap-1.5 text-[#FFFFFF] font-semibold uppercase tracking-wider text-[10px]">
+            <Tv size={14} className="opacity-80" />
             <span>TV Remote Mode</span>
           </div>
 
-          <div className="h-3 w-px bg-white/20" />
+          <div className="h-3 w-px bg-white/10" />
 
           {/* D-Pad Hint */}
-          <div className="flex items-center gap-1 text-[11px] text-white/80">
-            <span className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 font-mono text-[10px] text-cyan-300">
+          <div className="flex items-center gap-1 text-[11px] text-[#E0E0E0]">
+            <span className="px-1.5 py-0.5 rounded bg-white/[0.08] border border-white/15 font-mono text-[10px] text-[#FFFFFF]">
               ◀ ▲ ▼ ▶
             </span>
             <span>Navigate</span>
           </div>
 
-          <div className="h-3 w-px bg-white/20" />
+          <div className="h-3 w-px bg-white/10" />
 
           {/* OK / Select Hint */}
-          <div className="flex items-center gap-1 text-[11px] text-white/80">
-            <span className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 font-mono text-[10px] text-white font-bold">
+          <div className="flex items-center gap-1 text-[11px] text-[#E0E0E0]">
+            <span className="px-1.5 py-0.5 rounded bg-white/[0.08] border border-white/15 font-mono text-[10px] text-[#FFFFFF] font-bold">
               OK / Enter
             </span>
             <span>Select</span>
           </div>
 
-          <div className="h-3 w-px bg-white/20" />
+          <div className="h-3 w-px bg-white/10" />
 
           {/* Back Hint */}
-          <div className="flex items-center gap-1 text-[11px] text-white/80">
-            <span className="px-1.5 py-0.5 rounded bg-white/10 border border-white/20 font-mono text-[10px] text-white">
+          <div className="flex items-center gap-1 text-[11px] text-[#E0E0E0]">
+            <span className="px-1.5 py-0.5 rounded bg-white/[0.08] border border-white/15 font-mono text-[10px] text-[#FFFFFF]">
               Back
             </span>
             <span>Return</span>

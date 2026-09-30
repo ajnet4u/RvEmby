@@ -1,25 +1,62 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    --cinema-bg: #000000;
+    --cinema-text-muted: #E0E0E0;
+    --cinema-text-dim: #9E9E9E;
+    --cinema-text-bright: #FFFFFF;
+  }
+
   body {
-    @apply bg-zinc-950 text-white overflow-hidden;
+    background-color: #000000;
+    color: #E0E0E0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    overflow-x: hidden;
+    letter-spacing: -0.01em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/* Custom Scrollbar for immersive UI */
+/* Cinematic Title Typography */
+.cinema-title {
+  font-family: 'Inter', sans-serif;
+  letter-spacing: 0.035em;
+}
+
+/* Soft glowing outline for keyboard & remote focus (replaces harsh high-contrast borders) */
+.cinema-focus:focus-visible,
+[data-tv-focus="true"]:focus-visible,
+[data-tv-focus="true"]:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25), 0 0 22px rgba(255, 255, 255, 0.4);
+}
+
+/* Hide scrollbar utility */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom Scrollbar for immersive Dark Room UI */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 10px;
+  width: 6px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.02);
+  background: #000000;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.16);
 }
+

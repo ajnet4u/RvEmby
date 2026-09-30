@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Movie, TvShow, Episode, ServerSettings, SortField, SortDirection } from './types';
-import { MOCK_MOVIES, MOCK_TV_SHOWS } from './mockData';
+import { MOCK_MOVIES, MOCK_TV_SHOWS, getMockEpisodesForSeries } from './mockData';
 import { fetchEmbyMovies, fetchEmbyTvShows, fetchEmbyResumeItems, reportPlaybackProgress, episodeToPlayableMovie } from './api/emby';
 import { Sidebar, NavTab } from './components/Sidebar';
 import { MovieGrid } from './components/MovieGrid';
@@ -25,7 +25,7 @@ import {
   attachLocalProgressToMovies 
 } from './utils/playbackStorage';
 import { AnimatePresence, motion } from 'motion/react';
-import { Star, EyeOff, Server, AlertCircle, Loader2, Search, X } from 'lucide-react';
+import { Star, EyeOff, Server, AlertCircle, Loader2, Search, X, Play } from 'lucide-react';
 
 const STORAGE_KEY = 'jemby_server_settings';
 const FAVORITES_KEY = 'jemby_favorites';
@@ -304,6 +304,43 @@ export default function App() {
     setSelectedTvShow(null);
   }, [handlePlayMovie]);
 
+  // Compute next video item for post-credits "Up Next" sequence
+  const nextPlayableMovie = useMemo<Movie | null>(() => {
+    if (!playingMovie) return null;
+
+    // 1. If currently playing a TV Show episode: resolve the next episode
+    if (playingMovie.seriesId) {
+      const show = tvShows.find(s => s.id === playingMovie.seriesId);
+      if (show) {
+        const curSeason = playingMovie.seasonNumber || 1;
+        const curEpisode = playingMovie.episodeNumber || 1;
+
+        // Try next episode in current season
+        const currentSeasonEps = getMockEpisodesForSeries(show.id, curSeason);
+        const nextEp = currentSeasonEps.find(e => e.episodeNumber === curEpisode + 1);
+        if (nextEp) {
+          return episodeToPlayableMovie(nextEp);
+        }
+
+        // Try episode 1 of next season
+        const nextSeasonEps = getMockEpisodesForSeries(show.id, curSeason + 1);
+        if (nextSeasonEps.length > 0) {
+          return episodeToPlayableMovie(nextSeasonEps[0]);
+        }
+      }
+    }
+
+    // 2. If playing a standalone movie: find the next movie in the collection
+    const currentIndex = movies.findIndex(m => m.id === playingMovie.id);
+    if (currentIndex !== -1 && movies.length > 1) {
+      return movies[(currentIndex + 1) % movies.length];
+    }
+
+    // 3. Fallback to another movie from mock library
+    const fallback = MOCK_MOVIES.find(m => m.id !== playingMovie.id) || MOCK_MOVIES[0];
+    return fallback;
+  }, [playingMovie, tvShows, movies]);
+
   // Living Room / TV Remote / Gamepad spatial navigation handler
   const handleBackAction = useCallback(() => {
     if (playingMovie) {
@@ -378,7 +415,19 @@ export default function App() {
   const displayedMovies = useMemo(() => {
     let result = [...movies];
 
-    if (activeTab === 'favorites') {
+    if (activeTab === 'home' && !searchQuery.trim()) {
+      // Instead of featured movies, display continue watching.
+      // Only if continue watching is empty, display featured movies.
+      if (continueWatching.length > 0) {
+        result = [...continueWatching];
+        // For continue watching recency order, preserve it unless user actively chose a custom sort
+        if (sortField === 'title' || sortField === 'default') {
+          return result;
+        }
+      } else {
+        result = [...movies];
+      }
+    } else if (activeTab === 'favorites') {
       result = result.filter(m => favorites.includes(m.id));
     } else if (activeTab === 'collections') {
       if (selectedGenre) {
@@ -413,7 +462,7 @@ export default function App() {
     });
 
     return result;
-  }, [movies, activeTab, favorites, selectedGenre, searchQuery, sortField, sortDirection]);
+  }, [movies, continueWatching, activeTab, favorites, selectedGenre, searchQuery, sortField, sortDirection]);
 
   // Extract all unique genres for collections tab
   const allGenres = useMemo(() => {
@@ -457,7 +506,8 @@ export default function App() {
       return `Results for "${searchQuery}"`;
     }
     switch (activeTab) {
-      case 'home': return 'Featured Movies';
+      case 'home': 
+        return continueWatching.length > 0 ? 'Continue Watching' : 'Featured Movies';
       case 'movies': return 'All Movies';
       case 'tv': return 'TV Series';
       case 'recent': return 'Recently Added';
@@ -466,10 +516,10 @@ export default function App() {
       case 'codecs': return 'Hardware & Codecs';
       default: return 'Movies';
     }
-  }, [activeTab, selectedGenre, searchQuery]);
+  }, [activeTab, continueWatching.length, selectedGenre, searchQuery]);
 
   return (
-    <div className="relative w-screen h-screen bg-black overflow-hidden font-sans flex select-none text-white">
+    <div className="relative w-screen h-screen bg-[#000000] overflow-hidden font-sans flex select-none text-[#E0E0E0]">
       {/* Global Background Layer */}
       <AnimatePresence mode="wait">
         <motion.div
@@ -478,18 +528,18 @@ export default function App() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.8 }}
-          className="absolute inset-0 z-0"
+          className="absolute inset-0 z-0 pointer-events-none"
         >
           {currentBackdrop && (
             <img 
               src={currentBackdrop} 
               alt="Backdrop" 
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover opacity-25 filter blur-[1px]"
             />
           )}
-          {/* Gradient Overlays for glassmorphic depth */}
-          <div className="absolute inset-0 bg-gradient-to-r from-black via-black/60 to-transparent" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/85 to-transparent" />
+          {/* Subtle Ambient Dark Room Gradients */}
+          <div className="absolute inset-0 bg-gradient-to-r from-black via-black/80 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/90 to-black/40" />
         </motion.div>
       </AnimatePresence>
 
@@ -517,7 +567,7 @@ export default function App() {
               <div className="relative group">
                 <Search 
                   size={14} 
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/50 group-focus-within:text-cyan-400 transition-colors pointer-events-none" 
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#9E9E9E] group-focus-within:text-[#FFFFFF] transition-colors pointer-events-none" 
                 />
                 <input
                   type="text"
@@ -531,13 +581,13 @@ export default function App() {
                     }
                   }}
                   placeholder="Search movies by title..."
-                  className="w-44 sm:w-60 md:w-72 pl-9 pr-8 py-1.5 rounded-full bg-black/60 hover:bg-black/75 focus:bg-black/90 border border-white/20 focus:border-cyan-400 text-white placeholder-white/40 text-xs transition-all backdrop-blur-md focus:outline-none focus:ring-4 focus:ring-cyan-400/80 focus:scale-105 shadow-lg"
+                  className="w-44 sm:w-60 md:w-72 pl-9 pr-8 py-1.5 rounded-full bg-black/70 hover:bg-black/90 focus:bg-black border border-white/[0.08] focus:border-white/25 text-[#E0E0E0] focus:text-[#FFFFFF] placeholder-[#9E9E9E] text-xs transition-all backdrop-blur-md focus:outline-none cinema-focus shadow-lg"
                 />
                 {searchQuery && (
                   <button
                     data-tv-focus="true"
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/50 hover:text-white p-0.5 rounded-full hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-400"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9E9E9E] hover:text-[#FFFFFF] p-0.5 rounded-full hover:bg-white/10 transition-colors focus:outline-none cinema-focus"
                     title="Clear search (Esc)"
                   >
                     <X size={13} />
@@ -548,8 +598,8 @@ export default function App() {
           )}
 
           {loading && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-cyan-200 text-xs backdrop-blur-md">
-              <Loader2 size={13} className="animate-spin text-cyan-400" />
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/80 border border-white/10 text-[#E0E0E0] text-xs backdrop-blur-md">
+              <Loader2 size={13} className="animate-spin text-[#FFFFFF]" />
               <span>Loading Emby library...</span>
             </div>
           )}
@@ -558,10 +608,10 @@ export default function App() {
             <button
               data-tv-focus="true"
               onClick={() => setIsSettingsOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-950/70 border border-amber-500/40 text-amber-200 text-xs backdrop-blur-md hover:bg-amber-900/80 focus:ring-4 focus:ring-amber-400 focus:scale-105 transition-all shadow-lg cursor-pointer focus:outline-none"
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/80 border border-amber-500/30 text-amber-200/90 text-xs backdrop-blur-md hover:bg-black transition-all shadow-lg cursor-pointer focus:outline-none cinema-focus"
             >
               <AlertCircle size={14} className="text-amber-400" />
-              <span>Demo Mode ({movies.length} movies • {tvShows.length} series) • Connect Emby</span>
+              <span>Demo Mode ({movies.length} movies · {tvShows.length} series) · Connect Emby</span>
             </button>
           )}
 
@@ -569,10 +619,10 @@ export default function App() {
             <button
               data-tv-focus="true"
               onClick={() => setIsSettingsOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/70 border border-emerald-500/40 text-emerald-200 text-xs backdrop-blur-md hover:bg-emerald-900/80 focus:ring-4 focus:ring-emerald-400 focus:scale-105 transition-all shadow-lg cursor-pointer focus:outline-none"
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/80 border border-emerald-500/30 text-emerald-200/90 text-xs backdrop-blur-md hover:bg-black transition-all shadow-lg cursor-pointer focus:outline-none cinema-focus"
             >
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Emby Online ({movies.length} movies • {tvShows.length} series)</span>
+              <span>Emby Online ({movies.length} movies · {tvShows.length} series)</span>
             </button>
           )}
         </div>
@@ -584,10 +634,10 @@ export default function App() {
             <button
               data-tv-focus="true"
               onClick={() => setSelectedGenre(null)}
-              className={`px-3.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider transition-all focus:outline-none focus:ring-4 focus:ring-cyan-400 focus:scale-105 ${
+              className={`px-3.5 py-1 rounded-full text-xs font-medium tracking-wide transition-all focus:outline-none cinema-focus ${
                 selectedGenre === null 
-                  ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(6,182,212,0.6)]' 
-                  : 'bg-white/10 hover:bg-white/20 text-white/80'
+                  ? 'bg-white text-black font-semibold shadow-[0_0_12px_rgba(255,255,255,0.4)]' 
+                  : 'bg-white/[0.06] hover:bg-white/[0.12] text-[#E0E0E0]'
               }`}
             >
               All Genres ({movies.length})
@@ -597,10 +647,10 @@ export default function App() {
                 key={genre}
                 data-tv-focus="true"
                 onClick={() => setSelectedGenre(genre)}
-                className={`px-3.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider transition-all shrink-0 focus:outline-none focus:ring-4 focus:ring-cyan-400 focus:scale-105 ${
+                className={`px-3.5 py-1 rounded-full text-xs font-medium tracking-wide transition-all shrink-0 focus:outline-none cinema-focus ${
                   selectedGenre === genre 
-                    ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(6,182,212,0.6)]' 
-                    : 'bg-white/10 hover:bg-white/20 text-white/80'
+                    ? 'bg-white text-black font-semibold shadow-[0_0_12px_rgba(255,255,255,0.4)]' 
+                    : 'bg-white/[0.06] hover:bg-white/[0.12] text-[#E0E0E0]'
                 }`}
               >
                 {genre}
@@ -628,40 +678,35 @@ export default function App() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4 }}
                 >
-                  <h3 className="text-lg md:text-xl font-medium text-cyan-400 mb-1">
-                    {activeTvShow.genres?.slice(0, 2).join(' • ') || 'TV Series'}
+                  <h3 className="text-xs font-medium text-[#9E9E9E] tracking-widest uppercase mb-1">
+                    {activeTvShow.genres?.slice(0, 2).join(' · ') || 'TV Series'}
                   </h3>
-                  <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 tracking-tight drop-shadow-lg leading-tight">
+                  <h1 className="cinema-title text-4xl md:text-5xl lg:text-6xl font-bold text-[#FFFFFF] mb-3 tracking-wide drop-shadow-lg leading-tight">
                     {activeTvShow.title}
                   </h1>
                   
-                  <div className="flex flex-wrap items-center gap-4 text-white/90 text-base md:text-lg font-medium drop-shadow-md">
+                  <div className="flex flex-wrap items-center gap-3 text-[#9E9E9E] text-sm font-medium">
                     {activeTvShow.rating && (
-                      <div className="flex items-center gap-1.5">
-                        <Star className="fill-amber-400 text-amber-400" size={19} />
-                        <span>{activeTvShow.rating}</span>
+                      <div className="flex items-center gap-1 text-amber-300">
+                        <Star className="fill-amber-400 text-amber-400" size={16} />
+                        <span className="text-[#FFFFFF]">{activeTvShow.rating}</span>
                       </div>
-                    )}
-                    {activeTvShow.contentRating && (
-                      <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-bold border border-white/40 backdrop-blur-sm uppercase">
-                        {activeTvShow.contentRating}
-                      </span>
                     )}
                     {activeTvShow.year && <span>{activeTvShow.year}</span>}
                     {activeTvShow.seasonsCount && (
-                      <span className="bg-cyan-950/80 text-cyan-300 px-2.5 py-0.5 rounded text-xs font-bold border border-cyan-500/40">
+                      <span>
                         {activeTvShow.seasonsCount} {activeTvShow.seasonsCount === 1 ? 'Season' : 'Seasons'}
                       </span>
                     )}
                     {activeTvShow.status && (
-                      <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider">
+                      <span className="text-emerald-400 text-xs font-medium">
                         {activeTvShow.status}
                       </span>
                     )}
                   </div>
 
                   {activeTvShow.overview && (
-                    <p className="mt-3 text-sm md:text-base text-white/80 line-clamp-2 max-w-2xl font-light drop-shadow">
+                    <p className="mt-3 text-sm md:text-base text-[#E0E0E0]/80 line-clamp-2 max-w-2xl font-light leading-relaxed">
                       {activeTvShow.overview}
                     </p>
                   )}
@@ -686,68 +731,85 @@ export default function App() {
         {/* Regular Movie Browsing Views (when activeTab !== 'codecs' && activeTab !== 'tv') */}
         {activeTab !== 'codecs' && activeTab !== 'tv' && (
           <>
-            {/* Continue Watching Row (Pulls Incomplete Playback Data from Emby API) */}
-            {activeTab === 'home' && !searchQuery && !selectedMovie && continueWatching.length > 0 && (
-              <div className="pt-20 px-8 md:px-12 z-20 shrink-0">
-                <ContinueWatchingRow 
-                  movies={continueWatching}
-                  onPlay={handlePlayMovie}
-                  onSelect={setSelectedMovie}
-                  onHover={setHoveredMovie}
-                  onDismiss={handleDismissContinueWatching}
-                />
-              </div>
-            )}
-
             {/* Top Content Area - Hovered/Selected Movie details (for Home and Carousel views) */}
             {!selectedMovie && viewMode === 'carousel' && activeMovie && (
-              <div className={`flex-1 px-8 md:px-12 flex flex-col justify-center max-w-3xl ${
-                activeTab === 'home' && continueWatching.length > 0 ? 'pt-2 pb-2' : 'pt-20 md:pt-28'
-              }`}>
+              <div className="flex-1 px-8 md:px-12 flex flex-col justify-center max-w-3xl pt-20 md:pt-28">
                 <motion.div
                   key={activeMovie.id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4 }}
                 >
-                  <h3 className="text-lg md:text-xl font-medium text-white/80 mb-1">
-                    {activeMovie.genres?.slice(0, 2).join(' • ') || 'Movie'}
-                  </h3>
-                  <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 tracking-tight drop-shadow-lg leading-tight">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    {activeTab === 'home' && continueWatching.length > 0 && !searchQuery.trim() && (
+                      <span className="px-2.5 py-0.5 rounded-full bg-white/[0.14] border border-white/20 text-[#FFFFFF] text-[10px] font-bold tracking-widest uppercase">
+                        Continue Watching
+                      </span>
+                    )}
+                    <h3 className="text-xs font-medium text-[#9E9E9E] tracking-widest uppercase">
+                      {activeMovie.genres?.slice(0, 2).join(' · ') || 'Movie'}
+                    </h3>
+                  </div>
+
+                  <h1 className="cinema-title text-4xl md:text-5xl lg:text-6xl font-bold text-[#FFFFFF] mb-3 tracking-wide drop-shadow-lg leading-tight">
                     {activeMovie.title}
                   </h1>
                   
-                  <div className="flex flex-wrap items-center gap-4 text-white/90 text-base md:text-lg font-medium drop-shadow-md">
+                  <div className="flex flex-wrap items-center gap-3 text-[#9E9E9E] text-sm font-medium">
                     {activeMovie.rating && (
-                      <div className="flex items-center gap-1.5">
-                        <Star className="fill-amber-400 text-amber-400" size={19} />
-                        <span>{activeMovie.rating}</span>
+                      <div className="flex items-center gap-1 text-amber-300">
+                        <Star className="fill-amber-400 text-amber-400" size={16} />
+                        <span className="text-[#FFFFFF]">{activeMovie.rating}</span>
                       </div>
-                    )}
-                    {activeMovie.contentRating && (
-                      <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-bold border border-white/40 backdrop-blur-sm uppercase">
-                        {activeMovie.contentRating}
-                      </span>
                     )}
                     {activeMovie.year && <span>{activeMovie.year}</span>}
                     {activeMovie.runtime ? (
-                      <>
-                        <span>-</span>
-                        <span>{formatRuntime(activeMovie.runtime)}</span>
-                      </>
+                      <span>{formatRuntime(activeMovie.runtime)}</span>
                     ) : null}
                     {activeMovie.resolutionBadge && (
-                      <span className="bg-white/20 px-2 py-0.5 rounded text-[11px] font-bold tracking-widest border border-white/40 backdrop-blur-sm uppercase">
-                        {activeMovie.resolutionBadge}
-                      </span>
+                      <span className="text-xs text-[#E0E0E0]">{activeMovie.resolutionBadge}</span>
+                    )}
+
+                    {/* Progress Bar in Hero for in-progress movies */}
+                    {activeMovie.playbackPercentage && activeMovie.playbackPercentage > 0 && (
+                      <div className="flex items-center gap-2 ml-2 pl-3 border-l border-white/10">
+                        <div className="w-20 h-1.5 rounded-full bg-white/20 overflow-hidden">
+                          <div 
+                            className="h-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.7)]" 
+                            style={{ width: `${activeMovie.playbackPercentage}%` }} 
+                          />
+                        </div>
+                        <span className="text-xs text-white/90 font-mono">
+                          {activeMovie.playbackPercentage}%
+                        </span>
+                      </div>
                     )}
                   </div>
 
                   {activeMovie.overview && (
-                    <p className="mt-3 text-sm md:text-base text-white/80 line-clamp-2 max-w-2xl font-light drop-shadow">
+                    <p className="mt-3 text-sm md:text-base text-[#E0E0E0]/80 line-clamp-2 max-w-2xl font-light leading-relaxed">
                       {activeMovie.overview}
                     </p>
                   )}
+
+                  {/* Quick Action Buttons in Hero: Play/Resume and Details */}
+                  <div className="flex items-center gap-3 mt-5">
+                    <button
+                      data-tv-focus="true"
+                      onClick={() => handlePlayMovie(activeMovie, activeMovie.playbackPositionSeconds || 0)}
+                      className="px-6 py-2.5 rounded-xl bg-white text-black font-semibold text-sm flex items-center gap-2 hover:bg-white/90 shadow-[0_0_20px_rgba(255,255,255,0.2)] active:scale-95 transition-all cinema-focus cursor-pointer"
+                    >
+                      <Play size={16} className="fill-black" />
+                      <span>{activeMovie.playbackPositionSeconds ? 'Resume' : 'Play'}</span>
+                    </button>
+                    <button
+                      data-tv-focus="true"
+                      onClick={() => setSelectedMovie(activeMovie)}
+                      className="px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium text-sm border border-white/15 active:scale-95 transition-all cinema-focus cursor-pointer backdrop-blur-md"
+                    >
+                      <span>Details</span>
+                    </button>
+                  </div>
                 </motion.div>
               </div>
             )}
@@ -760,6 +822,7 @@ export default function App() {
                   movies={displayedMovies} 
                   onHover={setHoveredMovie} 
                   onSelect={setSelectedMovie} 
+                  onPlay={(movie, resumeSeconds) => handlePlayMovie(movie, resumeSeconds || 0)}
                   viewMode={viewMode}
                   onToggleViewMode={() => setViewMode(prev => prev === 'carousel' ? 'grid' : 'carousel')}
                   sortField={sortField}
@@ -796,6 +859,8 @@ export default function App() {
       {playingMovie && (
         <VideoPlayer 
           movie={playingMovie} 
+          nextMovie={nextPlayableMovie}
+          onPlayNext={(next) => handlePlayMovie(next, 0)}
           initialTime={resumeTime}
           settings={settings}
           onClose={() => setPlayingMovie(null)} 
