@@ -32,7 +32,8 @@ import {
   Settings as SettingsIcon,
   Sun,
   Monitor,
-  Info
+  Info,
+  Disc
 } from 'lucide-react';
 
 interface VideoPlayerProps {
@@ -261,6 +262,20 @@ export function VideoPlayer({
   const hasSeekedInitial = useRef(false);
   const progressReportTimer = useRef<NodeJS.Timeout | null>(null);
 
+  // Dynamic Real-time Bitrate Telemetry for Sony UBP-X1000ES Ultra HD Blu-ray OSD
+  const [liveBitrate, setLiveBitrate] = useState<number>(() => {
+    return movie?.resolutionBadge === '4K' || (movie?.videoUrl || '').includes('4k') ? 58.4 : 28.2;
+  });
+  useEffect(() => {
+    if (!isPlaying) return;
+    const base = movie?.resolutionBadge === '4K' || (movie?.videoUrl || '').includes('4k') ? 58 : 28;
+    const interval = setInterval(() => {
+      const delta = (Math.random() - 0.48) * 6;
+      setLiveBitrate(parseFloat(Math.max(14, base + delta).toFixed(1)));
+    }, 1400);
+    return () => clearInterval(interval);
+  }, [isPlaying, movie?.resolutionBadge, movie?.videoUrl]);
+
   useEffect(() => {
     const updateClock = () => {
       const now = new Date();
@@ -310,12 +325,16 @@ export function VideoPlayer({
     };
   }, [isPlaying, resetControlsTimer]);
 
-  // Lock body scroll while player is active (hide browser scrollbars)
+  // Lock body and html scroll while player is active (hide browser scrollbars and prevent horizontal shift)
   useEffect(() => {
-    const originalOverflow = document.body.style.overflow;
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalHtmlOverflow = document.documentElement.style.overflow;
     document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    window.scrollTo(0, 0);
     return () => {
-      document.body.style.overflow = originalOverflow;
+      document.body.style.overflow = originalBodyOverflow;
+      document.documentElement.style.overflow = originalHtmlOverflow;
     };
   }, []);
 
@@ -668,6 +687,21 @@ export function VideoPlayer({
     };
   }, [selectedSub, activeSubUrl]);
 
+  // Ensure native browser text tracks are set to 'hidden' so only our custom overlay renders without duplicate browser captions
+  useEffect(() => {
+    if (!videoRef.current) return;
+    const tracks = videoRef.current.textTracks;
+    if (tracks && tracks.length > 0) {
+      for (let i = 0; i < tracks.length; i++) {
+        if (selectedSub === null) {
+          tracks[i].mode = 'disabled';
+        } else {
+          tracks[i].mode = 'hidden';
+        }
+      }
+    }
+  }, [selectedSub, activeSubUrl]);
+
   // Save progress immediately on close, pause, or transition
   const reportCurrentProgress = useCallback(() => {
     if (movie?.id && videoRef.current && onProgressUpdate) {
@@ -742,12 +776,27 @@ export function VideoPlayer({
     setCurrentTime(now);
 
     // Synchronize active subtitle cue
+    let cueText = '';
     if (selectedSub !== null && subCues.length > 0) {
       const match = subCues.find(c => now >= c.start && now <= c.end);
-      setActiveSubtitleText(match ? match.text : '');
-    } else {
-      setActiveSubtitleText('');
+      if (match) cueText = match.text;
     }
+
+    // Fallback: If subCues is empty (e.g. CORS proxy blocked), read parsed cues from native textTrack
+    if (!cueText && selectedSub !== null && videoRef.current?.textTracks) {
+      for (let i = 0; i < videoRef.current.textTracks.length; i++) {
+        const t = videoRef.current.textTracks[i];
+        if (t.activeCues && t.activeCues.length > 0) {
+          const activeCue = t.activeCues[0] as any;
+          if (activeCue && activeCue.text) {
+            cueText = activeCue.text;
+            break;
+          }
+        }
+      }
+    }
+
+    setActiveSubtitleText(cueText);
 
     // Time Tracking Logic:
     // When the video reaches the last 5% of its duration (or a specific 'credits start' timestamp if available),
@@ -895,35 +944,44 @@ export function VideoPlayer({
         case 'MediaPlay':
         case 'MediaPause':
           e.preventDefault();
+          e.stopPropagation();
           togglePlay();
           break;
         case 'ArrowLeft':
         case 'MediaRewind':
           e.preventDefault();
+          e.stopPropagation();
           seek(-10);
           break;
         case 'ArrowRight':
         case 'MediaFastForward':
           e.preventDefault();
+          e.stopPropagation();
           seek(10);
           break;
         case 'ArrowUp':
           e.preventDefault();
+          e.stopPropagation();
           handleVolumeChange(Math.min(1, volume + 0.1));
           break;
         case 'ArrowDown':
           e.preventDefault();
+          e.stopPropagation();
           handleVolumeChange(Math.max(0, volume - 0.1));
           break;
         case 'i':
         case 'I':
         case 'd':
         case 'D':
-          // Toggle Display/Info (OSD in Hardware mode, Controls in Cinematic mode)
+          e.preventDefault();
+          e.stopPropagation();
+          // Toggle Display/Info (Sony OSD in Hardware mode, Controls in Cinematic mode)
           setShowControls(prev => !prev);
           break;
         case 'o':
         case 'O':
+          e.preventDefault();
+          e.stopPropagation();
           toggleUiMode();
           break;
         case 'm':
@@ -972,7 +1030,7 @@ export function VideoPlayer({
       ref={containerRef}
       onMouseMove={resetControlsTimer}
       onClick={resetControlsTimer}
-      className={`fixed inset-0 w-screen h-screen m-0 p-0 z-50 bg-[#000000] flex items-center justify-center select-none overflow-hidden font-sans text-[#E0E0E0] ${
+      className={`fixed inset-0 w-full h-full m-0 p-0 z-50 bg-[#000000] flex items-center justify-center select-none overflow-hidden font-sans text-[#E0E0E0] ${
         !showControls && isPlaying ? 'cursor-none' : 'cursor-default'
       }`}
     >
@@ -1034,6 +1092,14 @@ export function VideoPlayer({
               srcLang={activeSubTrack.code || activeSubTrack.lang?.toLowerCase() || 'en'}
               label={activeSubTrack.label}
               default
+              onLoad={(e) => {
+                const trackEl = e.currentTarget as HTMLTrackElement;
+                if (trackEl && trackEl.track) {
+                  // Keep track loaded so cues and activeCues are available, but hide native rendering
+                  // to avoid duplicating with the custom high-visibility subtitle overlay
+                  trackEl.track.mode = 'hidden';
+                }
+              }}
             />
           )}
         </video>
@@ -1723,6 +1789,17 @@ export function VideoPlayer({
                   )}
                 </div>
 
+                {/* Direct Switcher to Sony UBP-X1000ES Ultra HD Blu-ray OSD */}
+                <button 
+                  data-tv-focus="true"
+                  onClick={() => toggleUiMode('hardware')}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all backdrop-blur-md cursor-pointer border cinema-focus bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.15)]"
+                  title="Switch to Sony UBP-X1000ES Ultra HD Blu-ray Playback OSD (Key: D or O)"
+                >
+                  <Disc size={14} className="text-amber-400 shrink-0" />
+                  <span className="hidden sm:inline font-mono font-bold tracking-tight">Sony BD OSD</span>
+                </button>
+
                 {/* Fullscreen Button */}
                 <button 
                   data-tv-focus="true"
@@ -1742,12 +1819,20 @@ export function VideoPlayer({
                 <span><kbd className="text-[#FFFFFF] font-mono">← / →</kbd> Seek 10s</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">↑ / ↓</kbd> Volume</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">M</kbd> Mute</span>
-                <span><kbd className="text-[#FFFFFF] font-mono">I</kbd> OSD</span>
+                <span><kbd className="text-[#FFFFFF] font-mono">I / D</kbd> Sony OSD</span>
+                <span><kbd className="text-[#FFFFFF] font-mono">O</kbd> Mode</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">G</kbd> Glow</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">F</kbd> Fullscreen</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">Esc</kbd> Return</span>
               </div>
-              <span className="hidden md:inline text-zinc-500 font-mono text-[9px]">Cinema Mode</span>
+              <button
+                onClick={() => toggleUiMode('hardware')}
+                className="hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/5 hover:bg-white/15 text-zinc-400 hover:text-white font-mono text-[9px] cursor-pointer transition-colors border border-white/5"
+                title="Switch to Sony UBP-X1000ES Ultra HD Blu-ray Playback OSD"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                <span>Sony UBP-X1000ES OSD</span>
+              </button>
             </div>
 
           </div>

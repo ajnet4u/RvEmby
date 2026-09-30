@@ -13,9 +13,15 @@
     color: #E0E0E0;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     overflow-x: hidden;
+    max-width: 100vw;
     letter-spacing: -0.01em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  html {
+    overflow-x: hidden;
+    max-width: 100vw;
   }
 }
 
@@ -59,4 +65,24 @@
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.16);
 }
+
+/* Suppress duplicate native browser WebVTT caption rendering when using custom player overlay */
+video::cue,
+::cue {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  background: transparent !important;
+  color: transparent !important;
+  font-size: 0px !important;
+  line-height: 0px !important;
+}
+
+video::-webkit-media-text-track-display,
+video::-webkit-media-text-track-container {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
 

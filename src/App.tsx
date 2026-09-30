@@ -408,7 +408,8 @@ export default function App() {
   }, [playingMovie, selectedTvShow, selectedMovie, isSettingsOpen, searchQuery, selectedGenre, activeTab]);
 
   const { isTvMode } = useTvNavigation({
-    onBack: handleBackAction
+    onBack: handleBackAction,
+    enabled: !playingMovie
   });
 
   // Handle saving settings to state, localStorage & server backend

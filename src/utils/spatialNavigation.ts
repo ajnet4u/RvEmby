@@ -152,13 +152,19 @@ export function findNextElement(currentEl: HTMLElement, dir: Direction, containe
 }
 
 /**
- * Focuses an element smoothly and centers it in the TV viewport.
+ * Focuses an element smoothly and centers it in the TV viewport without shifting horizontal window scroll.
  */
 export function focusTvElement(el: HTMLElement) {
-  el.focus();
-  el.scrollIntoView({
-    behavior: 'smooth',
-    block: 'nearest',
-    inline: 'center'
-  });
+  try {
+    el.focus({ preventScroll: true });
+    if (el.scrollIntoView) {
+      el.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'nearest'
+      });
+    }
+  } catch {
+    el.focus();
+  }
 }
