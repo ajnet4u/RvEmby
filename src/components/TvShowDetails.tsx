@@ -105,6 +105,7 @@ export function TvShowDetails({
           {/* Top Bar Navigation */}
           <div className="mb-6 flex items-center justify-between">
             <button
+              tabIndex={0}
               data-tv-focus="true"
               onClick={onClose}
               className="flex items-center gap-2 text-[#9E9E9E] hover:text-[#FFFFFF] transition-colors group focus:outline-none rounded-full px-2 py-1 cinema-focus"
@@ -231,6 +232,7 @@ export function TvShowDetails({
                 return (
                   <button
                     key={season.id}
+                    tabIndex={0}
                     data-tv-focus="true"
                     onClick={() => setSelectedSeasonNumber(season.seasonNumber)}
                     className={`px-4 py-1.5 rounded-xl text-xs sm:text-sm font-medium tracking-wide transition-all shrink-0 focus:outline-none cinema-focus ${

@@ -59,15 +59,19 @@ export function ContinueWatchingRow({
         {/* Scroll Arrows */}
         <div className="flex items-center gap-1.5">
           <button
+            tabIndex={0}
+            data-tv-focus="true"
             onClick={() => scroll('left')}
-            className="p-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.1] text-[#9E9E9E] hover:text-[#FFFFFF] border border-white/[0.06] transition-colors cursor-pointer cinema-focus"
+            className="p-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.1] text-[#9E9E9E] hover:text-[#FFFFFF] border border-white/[0.06] transition-colors cursor-pointer cinema-focus focus:outline-none"
             title="Scroll Left"
           >
             <ChevronLeft size={15} />
           </button>
           <button
+            tabIndex={0}
+            data-tv-focus="true"
             onClick={() => scroll('right')}
-            className="p-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.1] text-[#9E9E9E] hover:text-[#FFFFFF] border border-white/[0.06] transition-colors cursor-pointer cinema-focus"
+            className="p-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.1] text-[#9E9E9E] hover:text-[#FFFFFF] border border-white/[0.06] transition-colors cursor-pointer cinema-focus focus:outline-none"
             title="Scroll Right"
           >
             <ChevronRight size={15} />

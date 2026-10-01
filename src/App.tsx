@@ -23,6 +23,7 @@ import { VideoPlayer } from './components/VideoPlayer';
 import { ContinueWatchingRow } from './components/ContinueWatchingRow';
 import { CodecDiagnosticsPage } from './components/CodecDiagnosticsPage';
 import { SettingsModal } from './components/SettingsModal';
+import { ExitPromptModal } from './components/ExitPromptModal';
 import { TvRemoteOverlay } from './components/TvRemoteOverlay';
 import { useTvNavigation } from './hooks/useTvNavigation';
 import { 
@@ -132,6 +133,7 @@ export default function App() {
   // Never automatically force-open the setup dialog on new devices!
   // App opens in clean Demo / Cinema mode; user can click "Connect Emby" whenever ready.
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showExitPrompt, setShowExitPrompt] = useState(false);
 
   const handleCloseSettings = () => {
     setIsSettingsOpen(false);
@@ -374,42 +376,56 @@ export default function App() {
     };
   }, [playingMovie?.id, playingMovie?.seriesId, isConnected, settings.url, settings.apiKey, tvShows]);
 
-  // Living Room / TV Remote / Gamepad spatial navigation handler
+  // Living Room / TV Remote / Gamepad spatial navigation & Back key handler
   const handleBackAction = useCallback(() => {
+    // 1. If Exit Prompt Modal is open, Back/Escape closes it
+    if (showExitPrompt) {
+      setShowExitPrompt(false);
+      return true;
+    }
+    // 2. If video player is active, Back returns to previous view
     if (playingMovie) {
       setPlayingMovie(null);
       return true;
     }
+    // 3. If TV Show details is open, Back closes it
     if (selectedTvShow) {
       setSelectedTvShow(null);
       return true;
     }
+    // 4. If Movie details is open, Back closes it
     if (selectedMovie) {
       setSelectedMovie(null);
       return true;
     }
+    // 5. If Settings modal is open, Back closes it
     if (isSettingsOpen) {
       handleCloseSettings();
       return true;
     }
+    // 6. If search query is active, Back clears search
     if (searchQuery) {
       setSearchQuery('');
       return true;
     }
+    // 7. If genre filter is active, Back clears filter
     if (selectedGenre) {
       setSelectedGenre(null);
       return true;
     }
+    // 8. If on a sub-tab, Back returns to root Home tab
     if (activeTab !== 'home') {
       setActiveTab('home');
       return true;
     }
-    return false;
-  }, [playingMovie, selectedTvShow, selectedMovie, isSettingsOpen, searchQuery, selectedGenre, activeTab]);
+    // 9. Root Home Screen reached: Intercept hardware back and open Exit Prompt Modal!
+    setShowExitPrompt(true);
+    return true;
+  }, [showExitPrompt, playingMovie, selectedTvShow, selectedMovie, isSettingsOpen, searchQuery, selectedGenre, activeTab]);
 
   const { isTvMode } = useTvNavigation({
     onBack: handleBackAction,
-    enabled: !playingMovie
+    enabled: !playingMovie || showExitPrompt
   });
 
   // Handle saving settings to state, localStorage & server backend
@@ -913,8 +929,18 @@ export default function App() {
         }}
       />
 
+      {/* Cinematic Exit Prompt Modal */}
+      <ExitPromptModal 
+        isOpen={showExitPrompt} 
+        onCancel={() => setShowExitPrompt(false)} 
+      />
+
       {/* Living Room TV Remote / Gamepad Navigation Hint Overlay */}
-      <TvRemoteOverlay visible={isTvMode} isPlaying={!!playingMovie} />
+      <TvRemoteOverlay 
+        visible={isTvMode} 
+        isPlaying={!!playingMovie} 
+        isRootHome={activeTab === 'home' && !selectedMovie && !selectedTvShow && !isSettingsOpen && !searchQuery && !selectedGenre}
+      />
     </div>
   );
 }

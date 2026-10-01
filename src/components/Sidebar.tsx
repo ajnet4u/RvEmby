@@ -12,7 +12,7 @@ interface SidebarProps {
 
 export function Sidebar({ activeTab, onSelectTab, onOpenSettings, isConnected, movieCount }: SidebarProps) {
   const navItems: { id: NavTab; icon: any; label: string }[] = [
-    { id: 'home', icon: Home, label: 'ACCUEIL' },
+    { id: 'home', icon: Home, label: 'HOME' },
     { id: 'movies', icon: Film, label: 'MOVIES' },
     { id: 'tv', icon: Tv, label: 'SERIES' },
     { id: 'recent', icon: RotateCcw, label: 'RECENT' },
@@ -38,6 +38,7 @@ export function Sidebar({ activeTab, onSelectTab, onOpenSettings, isConnected, m
           return (
             <button
               key={item.id}
+              tabIndex={0}
               data-tv-focus="true"
               onClick={() => onSelectTab(item.id)}
               className={`flex flex-col items-center gap-1.5 transition-all duration-300 group relative w-full focus:outline-none cinema-focus ${
@@ -71,9 +72,11 @@ export function Sidebar({ activeTab, onSelectTab, onOpenSettings, isConnected, m
       {/* Footer: Emby Connection Status & Settings */}
       <div className="mt-auto flex flex-col items-center gap-3 pt-4 border-t border-white/[0.04] w-full px-2">
         <button
+          tabIndex={0}
+          data-tv-focus="true"
           onClick={onOpenSettings}
           title={isConnected ? `Emby Connected (${movieCount} movies)` : "Server Not Connected (Click to Setup)"}
-          className="flex flex-col items-center gap-1 p-2 rounded-xl text-[#9E9E9E] hover:text-[#FFFFFF] hover:bg-white/[0.06] transition-all group relative w-full cinema-focus"
+          className="flex flex-col items-center gap-1 p-2 rounded-xl text-[#9E9E9E] hover:text-[#FFFFFF] hover:bg-white/[0.06] transition-all group relative w-full cinema-focus focus:outline-none"
         >
           <div className="relative">
             <Settings size={20} />

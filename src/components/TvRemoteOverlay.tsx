@@ -5,9 +5,10 @@ import { motion, AnimatePresence } from 'motion/react';
 interface TvRemoteOverlayProps {
   visible: boolean;
   isPlaying?: boolean;
+  isRootHome?: boolean;
 }
 
-export function TvRemoteOverlay({ visible, isPlaying = false }: TvRemoteOverlayProps) {
+export function TvRemoteOverlay({ visible, isPlaying = false, isRootHome = false }: TvRemoteOverlayProps) {
   if (isPlaying) return null;
 
   return (
@@ -50,9 +51,9 @@ export function TvRemoteOverlay({ visible, isPlaying = false }: TvRemoteOverlayP
           {/* Back Hint */}
           <div className="flex items-center gap-1 text-[11px] text-[#E0E0E0]">
             <span className="px-1.5 py-0.5 rounded bg-white/[0.08] border border-white/15 font-mono text-[10px] text-[#FFFFFF]">
-              Back
+              Back / Esc
             </span>
-            <span>Return</span>
+            <span>{isRootHome ? 'Exit' : 'Return'}</span>
           </div>
         </motion.div>
       )}

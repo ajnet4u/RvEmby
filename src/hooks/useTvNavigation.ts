@@ -55,7 +55,37 @@ export function useTvNavigation({ onBack, enabled = true }: UseTvNavigationOptio
     if (!enabled) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Arrow navigation
+      // Check for Back / Escape keys across PC and Smart TV platforms:
+      // - Standard: Escape, BrowserBack, GoBack
+      // - Samsung Tizen: 10009
+      // - LG webOS: 461
+      // - Android TV: 4
+      // - Backspace (when not currently typing in a text field)
+      const isInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+      const isBackKey = 
+        e.key === 'Escape' ||
+        e.key === 'BrowserBack' ||
+        e.key === 'GoBack' ||
+        e.keyCode === 10009 ||
+        e.keyCode === 461 ||
+        e.keyCode === 4 ||
+        e.which === 10009 ||
+        e.which === 461 ||
+        e.which === 4 ||
+        (!isInput && e.key === 'Backspace');
+
+      if (isBackKey) {
+        if (onBack) {
+          const handled = onBack();
+          if (handled) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }
+        return;
+      }
+
+      // Arrow spatial navigation
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         handleDirection('up');
@@ -68,18 +98,43 @@ export function useTvNavigation({ onBack, enabled = true }: UseTvNavigationOptio
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         handleDirection('right');
-      } else if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'BrowserBack') {
-        if (onBack) {
-          const handled = onBack();
-          if (handled) {
+      } else if (e.key === 'Enter' || e.code === 'NumpadEnter' || e.key === 'Select') {
+        // Enter Key Activation: activate the currently focused item without needing a mouse
+        const active = document.activeElement as HTMLElement | null;
+        if (active && active !== document.body && typeof active.click === 'function') {
+          const isTextInput = (active instanceof HTMLInputElement && active.type !== 'button' && active.type !== 'submit' && active.type !== 'checkbox' && active.type !== 'range') || active instanceof HTMLTextAreaElement;
+          if (!isTextInput) {
             e.preventDefault();
+            active.click();
           }
         }
       }
     };
 
+    // Tizen TV hardware back key registration
+    if (typeof (window as any).tizen !== 'undefined' && (window as any).tizen?.tvinputdevice) {
+      try {
+        (window as any).tizen.tvinputdevice.registerKey('Return');
+      } catch (err) {}
+    }
+
+    // Android TV / Cordova / Capacitor hardware backbutton event
+    const handleCordovaBackButton = (e: Event) => {
+      if (onBack) {
+        const handled = onBack();
+        if (handled) {
+          e.preventDefault();
+        }
+      }
+    };
+
+    document.addEventListener('backbutton', handleCordovaBackButton, false);
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('backbutton', handleCordovaBackButton, false);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, [enabled, handleDirection, onBack]);
 
   // Gamepad polling loop for Gamepads & Android TV controllers

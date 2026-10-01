@@ -33,8 +33,10 @@ import {
   Sun,
   Monitor,
   Info,
-  Disc
+  Disc,
+  Moon
 } from 'lucide-react';
+import { Direction, findNextElement, focusTvElement } from '../utils/spatialNavigation';
 
 interface VideoPlayerProps {
   movie: Movie | null;
@@ -183,6 +185,15 @@ export function VideoPlayer({
   // Playback method status: 'Direct Play' (initial), 'DIRECT PLAY', 'DIRECT STREAM', 'TRANSCODE'
   const [playbackMethod, setPlaybackMethod] = useState('Direct Play');
 
+  // Night Mode (Dynamic Range Compression) State
+  const [isNightMode, setIsNightMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('jemby_night_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
   // Toggle ambient glow and save to localStorage
   const toggleAmbientGlow = useCallback(() => {
     setIsAmbientGlowEnabled(prev => {
@@ -261,6 +272,11 @@ export function VideoPlayer({
   const [clockString, setClockString] = useState('');
   const hasSeekedInitial = useRef(false);
   const progressReportTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Web Audio API refs for Night Mode (Dynamic Range Compression)
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const mediaSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const compressorNodeRef = useRef<DynamicsCompressorNode | null>(null);
 
   // Dynamic Real-time Bitrate Telemetry for Sony UBP-X1000ES Ultra HD Blu-ray OSD
   const [liveBitrate, setLiveBitrate] = useState<number>(() => {
@@ -933,10 +949,197 @@ export function VideoPlayer({
     setTimeout(() => setToastMessage(null), 2500);
   };
 
+  // Web Audio API: Apply routing based on isNightMode state
+  // When isNightMode is true: Source -> Compressor -> Destination
+  // When isNightMode is false: Source -> Destination
+  const applyAudioRouting = useCallback((nightModeActive: boolean) => {
+    const ctx = audioContextRef.current;
+    const source = mediaSourceNodeRef.current;
+    const compressor = compressorNodeRef.current;
+    if (!ctx || !source || !compressor) return;
+
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(console.warn);
+    }
+
+    // Disconnect previous nodes to prevent duplicate or conflicting audio paths
+    try {
+      source.disconnect();
+      compressor.disconnect();
+    } catch {
+      // Safe catch if nodes were not previously connected
+    }
+
+    if (nightModeActive) {
+      // Route audio: Source -> Compressor -> Destination
+      source.connect(compressor);
+      compressor.connect(ctx.destination);
+    } else {
+      // Bypass compressor: Source -> Destination
+      source.connect(ctx.destination);
+    }
+  }, []);
+
+  // Initialize AudioContext & DynamicsCompressorNode (strictly once per HTML <video> element)
+  const initAudioContext = useCallback(() => {
+    if (audioContextRef.current || !videoRef.current) return;
+
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) {
+        console.warn("Web Audio API is not supported in this browser.");
+        return;
+      }
+
+      const ctx = new AudioCtx();
+      const source = ctx.createMediaElementSource(videoRef.current);
+      const compressor = ctx.createDynamicsCompressor();
+
+      // Configure DynamicsCompressorNode with aggressive Night Mode settings:
+      // threshold: -50 dB (reacts to a majority of the audio track)
+      // knee: 40 dB (smooth transition into compression)
+      // ratio: 12 (heavy reduction on loud peaks)
+      // attack: 0.003s (clamps down on explosions instantly)
+      // release: 0.25s (recovers quickly for normal dialogue)
+      compressor.threshold.setValueAtTime(-50, ctx.currentTime);
+      compressor.knee.setValueAtTime(40, ctx.currentTime);
+      compressor.ratio.setValueAtTime(12, ctx.currentTime);
+      compressor.attack.setValueAtTime(0.003, ctx.currentTime);
+      compressor.release.setValueAtTime(0.25, ctx.currentTime);
+
+      audioContextRef.current = ctx;
+      mediaSourceNodeRef.current = source;
+      compressorNodeRef.current = compressor;
+
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(console.warn);
+      }
+
+      // Initial audio routing
+      if (isNightMode) {
+        source.connect(compressor);
+        compressor.connect(ctx.destination);
+      } else {
+        source.connect(ctx.destination);
+      }
+    } catch (err) {
+      console.warn("Web Audio DynamicsCompressor initialization:", err);
+    }
+  }, [isNightMode]);
+
+  // Toggle Night Mode (DRC)
+  const toggleNightMode = useCallback(() => {
+    initAudioContext();
+    setIsNightMode(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('jemby_night_mode', next ? 'true' : 'false');
+      } catch {}
+      applyAudioRouting(next);
+      showToast(next ? 'Night Mode (DRC) ON: Loud explosions compressed, quiet dialogue boosted' : 'Night Mode OFF: Dynamic range restored');
+      return next;
+    });
+  }, [initAudioContext, applyAudioRouting]);
+
+  // Ensure routing stays in sync when state updates
+  useEffect(() => {
+    if (audioContextRef.current) {
+      applyAudioRouting(isNightMode);
+    }
+  }, [isNightMode, applyAudioRouting]);
+
+  // Clean up Web Audio graph on unmount
+  useEffect(() => {
+    return () => {
+      if (audioContextRef.current) {
+        try {
+          mediaSourceNodeRef.current?.disconnect();
+          compressorNodeRef.current?.disconnect();
+          if (audioContextRef.current.state !== 'closed') {
+            audioContextRef.current.close().catch(console.warn);
+          }
+        } catch (e) {
+          console.warn("Web Audio cleanup:", e);
+        }
+        audioContextRef.current = null;
+        mediaSourceNodeRef.current = null;
+        compressorNodeRef.current = null;
+      }
+    };
+  }, []);
+
   // Keyboard and TV remote controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       resetControlsTimer();
+
+      const isInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+      const isBackKey = 
+        e.key === 'Escape' ||
+        e.key === 'BrowserBack' ||
+        e.key === 'GoBack' ||
+        e.keyCode === 10009 || // Samsung Tizen Return
+        e.keyCode === 461 ||   // LG webOS Back
+        e.keyCode === 4 ||     // Android TV Back
+        e.which === 10009 ||
+        e.which === 461 ||
+        e.which === 4 ||
+        (!isInput && e.key === 'Backspace');
+
+      // Intercept Hardware Back / Escape Key
+      if (isBackKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (showAudioMenu || showSubMenu || showSettingsMenu) {
+          setShowAudioMenu(false);
+          setShowSubMenu(false);
+          setShowSettingsMenu(false);
+          return;
+        }
+        if (isCreditsSkipping) {
+          handleCancelCredits();
+        } else {
+          handleClosePlayer();
+        }
+        return;
+      }
+
+      // Check if any on-screen control bar element, button, or menu item is currently focused
+      const activeEl = document.activeElement as HTMLElement | null;
+      const isControlFocused = !!(
+        activeEl &&
+        containerRef.current &&
+        containerRef.current.contains(activeEl) &&
+        (
+          activeEl.closest('[data-tv-focus="true"]') ||
+          activeEl.closest('.cinema-focus') ||
+          activeEl.tagName === 'BUTTON' ||
+          activeEl.tagName === 'INPUT'
+        ) &&
+        activeEl !== document.body &&
+        activeEl !== containerRef.current
+      );
+
+      // If control bar is focused, arrow keys navigate between UI buttons
+      if (isControlFocused && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        let dir: Direction | null = null;
+        if (e.key === 'ArrowLeft') dir = 'left';
+        else if (e.key === 'ArrowRight') dir = 'right';
+        else if (e.key === 'ArrowUp') dir = 'up';
+        else if (e.key === 'ArrowDown') dir = 'down';
+
+        if (dir) {
+          e.preventDefault();
+          e.stopPropagation();
+          const next = findNextElement(activeEl, dir, containerRef.current || document.body);
+          if (next) {
+            focusTvElement(next);
+          }
+          return;
+        }
+      }
+
+      // If control bar is NOT focused: Arrow keys control playback directly (seek, volume)
       switch (e.key) {
         case ' ':
         case 'Enter':
@@ -967,6 +1170,14 @@ export function VideoPlayer({
         case 'ArrowDown':
           e.preventDefault();
           e.stopPropagation();
+          // If controls are visible, focus the first control button for TV D-Pad navigation
+          if (showControls && containerRef.current) {
+            const firstButton = containerRef.current.querySelector<HTMLElement>('button[data-tv-focus="true"], button.cinema-focus');
+            if (firstButton) {
+              focusTvElement(firstButton);
+              return;
+            }
+          }
           handleVolumeChange(Math.max(0, volume - 0.1));
           break;
         case 'i':
@@ -992,15 +1203,6 @@ export function VideoPlayer({
         case 'F':
           toggleFullscreen();
           break;
-        case 'Escape':
-        case 'Backspace':
-          e.preventDefault();
-          if (isCreditsSkipping) {
-            handleCancelCredits();
-          } else {
-            handleClosePlayer();
-          }
-          break;
         case 'c':
         case 'C':
           if (isCreditsSkipping) {
@@ -1011,6 +1213,12 @@ export function VideoPlayer({
         case 'G':
           toggleAmbientGlow();
           break;
+        case 'n':
+        case 'N':
+          e.preventDefault();
+          e.stopPropagation();
+          toggleNightMode();
+          break;
         default:
           break;
       }
@@ -1018,7 +1226,7 @@ export function VideoPlayer({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [volume, isMuted, duration, isPlaying, isCreditsSkipping, toggleAmbientGlow, toggleUiMode, handleCancelCredits, handleClosePlayer, resetControlsTimer]);
+  }, [volume, isMuted, duration, isPlaying, showControls, showAudioMenu, showSubMenu, showSettingsMenu, isCreditsSkipping, toggleAmbientGlow, toggleNightMode, toggleUiMode, handleCancelCredits, handleClosePlayer, resetControlsTimer]);
 
   if (!movie || !movie.videoUrl) return null;
 
@@ -1069,6 +1277,11 @@ export function VideoPlayer({
           onError={handleVideoError}
           onPlay={() => {
             setIsPlaying(true);
+            if (!audioContextRef.current) {
+              initAudioContext();
+            } else if (audioContextRef.current.state === 'suspended') {
+              audioContextRef.current.resume().catch(console.warn);
+            }
             if (settings && movie && videoRef.current) {
               reportEmbyPlaybackProgress(settings, movie.id, movie.mediaSourceId || movie.id, playSessionId, videoRef.current.currentTime, false);
             }
@@ -1400,11 +1613,29 @@ export function VideoPlayer({
               {/* Timeline Container (Expands slightly on hover) */}
               <div 
                 ref={timelineRef}
+                tabIndex={0}
+                role="slider"
+                aria-label="Video timeline progress"
+                aria-valuemin={0}
+                aria-valuemax={Math.round(duration)}
+                aria-valuenow={Math.round(currentTime)}
+                data-tv-focus="true"
                 onClick={handleTimelineClick}
                 onMouseEnter={() => setIsHoveringTimeline(true)}
                 onMouseLeave={() => setIsHoveringTimeline(false)}
                 onMouseMove={handleTimelineMouseMove}
-                className="relative flex-1 h-5 flex items-center cursor-pointer group"
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    seek(10);
+                  } else if (e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    seek(-10);
+                  }
+                }}
+                className="relative flex-1 h-5 flex items-center cursor-pointer group rounded-lg cinema-focus focus:outline-none focus:ring-2 focus:ring-white/80"
               >
                 {/* Thin progress bar that slightly expands in height when hovered */}
                 <div className="w-full h-[3px] group-hover:h-[6px] rounded-full bg-white/20 overflow-hidden transition-all duration-200 ease-out relative">
@@ -1449,27 +1680,58 @@ export function VideoPlayer({
 
             {/* Ultra-Minimalist Playback Control Center */}
             <div className="flex items-center justify-between pt-0.5">
-              {/* Left Controls: Volume */}
-              <div className="flex items-center gap-3 w-1/4">
+              {/* Left Controls: Volume & Night Mode (DRC) */}
+              <div className="flex items-center gap-2 sm:gap-2.5 w-1/4">
                 <button 
                   data-tv-focus="true"
                   onClick={toggleMute}
-                  className="p-2 rounded-full text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-white/[0.08] transition-all cursor-pointer cinema-focus"
+                  className="p-2 rounded-full text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-white/[0.08] transition-all cursor-pointer cinema-focus shrink-0"
                   title={isMuted ? "Unmute (M)" : "Mute (M)"}
                 >
                   {isMuted ? <VolumeX size={17} className="text-zinc-400" /> : <Volume2 size={17} />}
                 </button>
 
                 <input 
+                  tabIndex={0}
+                  data-tv-focus="true"
                   type="range"
                   min="0"
                   max="1"
                   step="0.05"
                   value={isMuted ? 0 : volume}
+                  aria-label="Volume slider"
                   onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                  className="w-20 accent-white cursor-pointer opacity-70 hover:opacity-100 transition-opacity"
-                  title="Volume"
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleVolumeChange(Math.min(1, parseFloat((volume + 0.05).toFixed(2))));
+                    } else if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleVolumeChange(Math.max(0, parseFloat((volume - 0.05).toFixed(2))));
+                    }
+                  }}
+                  className="w-16 sm:w-20 accent-white cursor-pointer opacity-70 hover:opacity-100 transition-opacity cinema-focus rounded-full focus:outline-none"
+                  title="Volume (Arrow Up / Down to adjust)"
                 />
+
+                {/* Night Mode (Dynamic Range Compression) Toggle Button */}
+                <button
+                  data-tv-focus="true"
+                  onClick={toggleNightMode}
+                  className={`p-1.5 sm:p-2 rounded-xl transition-all cursor-pointer cinema-focus flex items-center gap-1.5 border shrink-0 ${
+                    isNightMode
+                      ? 'bg-indigo-500/25 text-indigo-200 border-indigo-400/50 shadow-[0_0_16px_rgba(99,102,241,0.45)]'
+                      : 'text-[#9E9E9E] hover:text-[#FFFFFF] hover:bg-white/[0.08] border-transparent'
+                  }`}
+                  title={isNightMode ? "Night Mode (DRC) ON: Loud explosions compressed, quiet dialogue boosted (N)" : "Night Mode (DRC) OFF: Full dynamic range (N)"}
+                >
+                  <Moon size={16} className={isNightMode ? "fill-indigo-300 text-indigo-300" : ""} />
+                  <span className={`text-[10px] font-mono font-bold hidden lg:inline ${isNightMode ? 'text-indigo-200' : 'text-zinc-400'}`}>
+                    NIGHT
+                  </span>
+                </button>
               </div>
 
               {/* Center Controls: Minimalist Media Buttons */}
@@ -1724,50 +1986,38 @@ export function VideoPlayer({
                         </button>
                       </div>
 
-                      {/* UI Display Mode (Cinematic HUD vs. Hardware OSD) */}
-                      <div className="mt-2.5 p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] flex flex-col gap-2">
-                        <div className="flex items-center justify-between">
+                      {/* Ambient Glow (Ambilight) Toggle Row */}
+
+                      {/* Night Mode Dynamic Range Compression Toggle */}
+                      <div className="mt-2.5 p-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.07] transition-colors border border-white/[0.06] flex items-center justify-between gap-3">
+                        <div className="space-y-0.5">
                           <div className="flex items-center gap-1.5 text-xs font-semibold text-[#FFFFFF]">
-                            <Monitor size={13} className="text-sky-300" />
-                            <span>UI Mode</span>
+                            <Moon size={13} className={isNightMode ? 'text-indigo-400' : 'text-[#9E9E9E]'} />
+                            <span>Night Mode (DRC)</span>
                           </div>
-                          <span className="font-mono text-[9px] uppercase px-1.5 py-0.5 rounded bg-white/10 text-white/80">
-                            {uiMode === 'hardware' ? 'Hardware OSD' : 'Cinematic'}
-                          </span>
+                          <div className="text-[10px] text-[#9E9E9E] leading-tight">
+                            Compress explosions, boost quiet dialogue
+                          </div>
                         </div>
 
-                        {/* Segmented Pill Selector */}
-                        <div className="grid grid-cols-2 gap-1 p-0.5 bg-black/60 rounded-lg border border-white/10">
-                          <button
-                            type="button"
-                            data-tv-focus="true"
-                            onClick={() => toggleUiMode('cinematic')}
-                            className={`py-1 text-center text-xs font-medium rounded-md transition-all cursor-pointer ${
-                              uiMode === 'cinematic' 
-                                ? 'bg-white text-black font-semibold shadow-sm' 
-                                : 'text-[#9E9E9E] hover:text-white'
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={isNightMode}
+                          onClick={toggleNightMode}
+                          className={`w-11 h-6 shrink-0 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200 ease-in-out cinema-focus ${
+                            isNightMode 
+                              ? 'bg-indigo-500 shadow-[0_0_12px_rgba(99,102,241,0.4)]' 
+                              : 'bg-white/20'
+                          }`}
+                          title={isNightMode ? "Turn off Night Mode" : "Turn on Night Mode"}
+                        >
+                          <div
+                            className={`w-4 h-4 rounded-full transition-transform duration-200 ease-in-out shadow-sm ${
+                              isNightMode ? 'translate-x-5 bg-[#000000]' : 'translate-x-0 bg-white/70'
                             }`}
-                          >
-                            Cinematic
-                          </button>
-                          <button
-                            type="button"
-                            data-tv-focus="true"
-                            onClick={() => toggleUiMode('hardware')}
-                            className={`py-1 text-center text-xs font-medium rounded-md transition-all cursor-pointer ${
-                              uiMode === 'hardware' 
-                                ? 'bg-white text-black font-semibold shadow-sm' 
-                                : 'text-[#9E9E9E] hover:text-white'
-                            }`}
-                          >
-                            Hardware OSD
-                          </button>
-                        </div>
-                        <div className="text-[10px] text-[#9E9E9E] leading-tight">
-                          {uiMode === 'hardware' 
-                            ? 'Sony Blu-ray style technical display. Toggle with Key: I.' 
-                            : 'Floating glassmorphic controls with auto-hide.'}
-                        </div>
+                          />
+                        </button>
                       </div>
 
                       {/* Audio Transcode Toggle */}
@@ -1789,22 +2039,12 @@ export function VideoPlayer({
                   )}
                 </div>
 
-                {/* Direct Switcher to Sony UBP-X1000ES Ultra HD Blu-ray OSD */}
-                <button 
-                  data-tv-focus="true"
-                  onClick={() => toggleUiMode('hardware')}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all backdrop-blur-md cursor-pointer border cinema-focus bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.15)]"
-                  title="Switch to Sony UBP-X1000ES Ultra HD Blu-ray Playback OSD (Key: D or O)"
-                >
-                  <Disc size={14} className="text-amber-400 shrink-0" />
-                  <span className="hidden sm:inline font-mono font-bold tracking-tight">Sony BD OSD</span>
-                </button>
-
                 {/* Fullscreen Button */}
                 <button 
+                  tabIndex={0}
                   data-tv-focus="true"
                   onClick={toggleFullscreen}
-                  className="p-2 rounded-xl text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-white/[0.08] transition-all cursor-pointer cinema-focus border border-white/[0.06]"
+                  className="p-2 rounded-xl text-[#E0E0E0] hover:text-[#FFFFFF] hover:bg-white/[0.08] transition-all cursor-pointer cinema-focus border border-white/[0.06] focus:outline-none"
                   title="Toggle Fullscreen (F)"
                 >
                   {isFullscreen ? <Minimize size={15} /> : <Maximize size={15} />}
@@ -1819,16 +2059,21 @@ export function VideoPlayer({
                 <span><kbd className="text-[#FFFFFF] font-mono">← / →</kbd> Seek 10s</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">↑ / ↓</kbd> Volume</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">M</kbd> Mute</span>
+                <span><kbd className="text-[#FFFFFF] font-mono">N</kbd> Night Mode</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">I / D</kbd> Sony OSD</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">O</kbd> Mode</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">G</kbd> Glow</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">F</kbd> Fullscreen</span>
                 <span><kbd className="text-[#FFFFFF] font-mono">Esc</kbd> Return</span>
               </div>
+
+              {/* Small discrete switcher button in the footer bar */}
               <button
+                tabIndex={0}
+                data-tv-focus="true"
                 onClick={() => toggleUiMode('hardware')}
-                className="hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/5 hover:bg-white/15 text-zinc-400 hover:text-white font-mono text-[9px] cursor-pointer transition-colors border border-white/5"
-                title="Switch to Sony UBP-X1000ES Ultra HD Blu-ray Playback OSD"
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/5 hover:bg-white/15 text-zinc-400 hover:text-white font-mono text-[9px] cursor-pointer transition-colors border border-white/5 cinema-focus focus:outline-none"
+                title="Switch to Sony UBP-X1000ES Ultra HD Blu-ray Playback OSD (Key: D or O)"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                 <span>Sony UBP-X1000ES OSD</span>
@@ -1994,6 +2239,25 @@ export function VideoPlayer({
                     </button>
                   </div>
 
+                  {/* Night Mode Dynamic Range Compression */}
+                  <div className="p-2 bg-[#1c1c1c] border border-[#333] flex items-center justify-between mb-2">
+                    <div>
+                      <div className="font-bold text-xs flex items-center gap-1.5">
+                        <Moon size={11} className={isNightMode ? "text-indigo-400 fill-indigo-400" : "text-neutral-400"} />
+                        <span>NIGHT MODE (DRC)</span>
+                      </div>
+                      <div className="text-[10px] text-[#888]">Normalize audio & dialogue</div>
+                    </div>
+                    <button
+                      onClick={toggleNightMode}
+                      className={`px-2 py-0.5 font-mono text-xs font-bold border cursor-pointer ${
+                        isNightMode ? 'bg-indigo-400 text-black border-indigo-300' : 'bg-transparent text-neutral-400 border-[#555]'
+                      }`}
+                    >
+                      {isNightMode ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+
                   {/* Force AAC Audio Transcode */}
                   <div className="p-2 bg-[#1c1c1c] border border-[#333] flex items-center justify-between">
                     <div>
@@ -2015,15 +2279,18 @@ export function VideoPlayer({
               {/* Top Row: Currently playing Title on the left, Playback Status Badge & Clock on right */}
               <div className="flex items-center justify-between pb-2.5 border-b border-[#2d2d2d] gap-3 sm:gap-4">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="shrink-0 px-2 py-0.5 bg-black border border-[#555] font-mono text-[10px] font-bold text-white tracking-widest uppercase">
-                    BD-ROM
+                  <span className="shrink-0 px-2 py-0.5 bg-gradient-to-r from-[#222222] via-[#1a1a1a] to-[#111111] border border-[#666666] font-mono text-[10px] font-black text-amber-300 tracking-widest uppercase shadow-sm">
+                    ULTRA HD Blu-ray
                   </span>
-                  <span className="shrink-0 text-emerald-400 font-mono text-xs font-bold tracking-wider">
+                  <span className={`shrink-0 font-mono text-xs font-bold tracking-wider ${isPlaying ? 'text-[#00FF00]' : 'text-amber-400'}`}>
                     {isPlaying ? 'PLAY ▶' : 'PAUSE ❚❚'}
                   </span>
                   <h2 className="text-sm sm:text-base md:text-lg font-bold text-white tracking-wide truncate uppercase font-['Arial',sans-serif]">
                     {movie.seriesName ? `${movie.seriesName} - ${movie.title}` : movie.title}
                   </h2>
+                  <span className="hidden lg:inline text-xs font-mono text-neutral-400">
+                    Title 1/1 • Chapter {movie.episodeNumber ? movie.episodeNumber : '1'}/16
+                  </span>
                 </div>
 
                 <div className="shrink-0 flex items-center gap-2 sm:gap-2.5 text-xs font-mono text-[#D4D4D4]">
@@ -2039,9 +2306,16 @@ export function VideoPlayer({
                   <span className="hidden sm:inline text-[#888888]">SYS:</span>
                   <span className="text-white font-bold tracking-wider">{clockString}</span>
                   <button
+                    onClick={() => toggleUiMode('cinematic')}
+                    className="px-2 py-0.5 bg-[#222222] hover:bg-white hover:text-black border border-[#555555] text-[10px] text-white font-mono cursor-pointer transition-colors"
+                    title="Switch to Cinematic HUD (Key: O)"
+                  >
+                    [ CINEMA (O) ]
+                  </button>
+                  <button
                     onClick={() => setShowControls(false)}
                     className="px-2 py-0.5 bg-[#222222] hover:bg-[#333333] border border-[#555555] text-[10px] text-white font-mono cursor-pointer transition-colors"
-                    title="Hide OSD (Key: I)"
+                    title="Hide OSD (Key: I or D)"
                   >
                     [ HIDE (I) ]
                   </button>
@@ -2065,8 +2339,26 @@ export function VideoPlayer({
                 {/* Thick Solid Progress Bar */}
                 <div 
                   ref={timelineRef}
+                  tabIndex={0}
+                  role="slider"
+                  aria-label="Video timeline progress"
+                  aria-valuemin={0}
+                  aria-valuemax={Math.round(duration)}
+                  aria-valuenow={Math.round(currentTime)}
+                  data-tv-focus="true"
                   onClick={handleTimelineClick}
-                  className="flex-1 h-3 sm:h-3.5 bg-[#222222] border border-[#444444] relative cursor-pointer"
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowRight') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      seek(10);
+                    } else if (e.key === 'ArrowLeft') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      seek(-10);
+                    }
+                  }}
+                  className="flex-1 h-3 sm:h-3.5 bg-[#222222] border border-[#444444] relative cursor-pointer cinema-focus focus:outline-none"
                 >
                   <div 
                     className="h-full bg-[#FFD700]" // Stark bright yellow classic Sony Blu-ray bar
@@ -2088,23 +2380,26 @@ export function VideoPlayer({
                 </span>
               </div>
 
-              {/* Bottom Row: Raw media technical data in small text blocks */}
+              {/* Sony UBP-X1000ES Telemetry Grid: VIDEO, AUDIO, SUBTITLE, HDMI OUTPUT */}
               <div className="pt-2.5 border-t border-[#2d2d2d] flex flex-wrap items-center justify-between gap-2.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  {/* Video Codec and Resolution Block */}
-                  <div className="px-2.5 py-1 bg-[#1c1c1c] border border-[#3a3a3a] flex items-center gap-1.5">
-                    <span className="text-[#888888] font-mono text-[10px] font-bold uppercase">VIDEO</span>
+                  {/* Video Telemetry Panel with Real-time Bitrate Indicator */}
+                  <div className="px-2.5 py-1 bg-[#181818] border border-[#3a3a3a] flex items-center gap-2">
+                    <span className="text-amber-400 font-mono text-[10px] font-bold uppercase tracking-wider">VIDEO</span>
                     <span className="font-mono font-bold text-white text-xs tracking-tight">
-                      {movie.resolutionBadge || '1080p'} {movie.videoCodec || 'HEVC'} {movie.hdrBadge ? `[${movie.hdrBadge}]` : ''}
+                      {movie.resolutionBadge || '4K'}/24p {movie.videoCodec || 'HEVC'} {movie.hdrBadge ? `[${movie.hdrBadge}]` : '[HDR10]'} BT.2020
+                    </span>
+                    <span className="font-mono text-emerald-400 text-[11px] font-bold bg-black/60 px-1.5 py-0.5 border border-emerald-500/30 tabular-nums">
+                      {liveBitrate} Mbps
                     </span>
                   </div>
 
-                  {/* Audio Codec Block */}
-                  <div className="px-2.5 py-1 bg-[#1c1c1c] border border-[#3a3a3a] flex items-center gap-1.5">
-                    <span className="text-[#888888] font-mono text-[10px] font-bold uppercase">AUDIO</span>
+                  {/* Audio Telemetry Panel with Audio Bitrate */}
+                  <div className="px-2.5 py-1 bg-[#181818] border border-[#3a3a3a] flex items-center gap-2">
+                    <span className="text-amber-400 font-mono text-[10px] font-bold uppercase tracking-wider">AUDIO</span>
                     <span className="font-mono font-bold text-white text-xs tracking-tight">
-                      {audioTracks[selectedAudio] 
-                        ? `${audioTracks[selectedAudio].format || 'Dolby Digital'} ${
+                      1/{audioTracks.length} {audioTracks[selectedAudio]?.lang || 'ENG'} {audioTracks[selectedAudio] 
+                        ? `${audioTracks[selectedAudio].format || 'Dolby Atmos'} ${
                             audioTracks[selectedAudio].channels === 6 || audioTracks[selectedAudio].channels === 5 
                               ? '5.1' 
                               : audioTracks[selectedAudio].channels === 8 
@@ -2115,23 +2410,34 @@ export function VideoPlayer({
                                     ? `${audioTracks[selectedAudio].channels}CH` 
                                     : '5.1'
                           }`
-                        : 'Dolby Digital 5.1'}
+                        : 'Dolby Atmos 7.1'} 48kHz
                     </span>
+                    <span className="font-mono text-cyan-300 text-[11px] font-bold bg-black/60 px-1.5 py-0.5 border border-cyan-500/30 tabular-nums">
+                      {isAudioTranscoding ? '384 kbps' : '4.8 Mbps'}
+                    </span>
+                    {isNightMode && (
+                      <span className="font-mono text-indigo-300 text-[10px] font-bold bg-indigo-950/80 px-1.5 py-0.5 border border-indigo-500/40 tabular-nums">
+                        DRC
+                      </span>
+                    )}
                   </div>
 
-                  {/* Subtitle Track Block */}
-                  <div className="px-2.5 py-1 bg-[#1c1c1c] border border-[#3a3a3a] flex items-center gap-1.5">
-                    <span className="text-[#888888] font-mono text-[10px] font-bold uppercase">SUBTITLE</span>
+                  {/* Subtitle Telemetry Panel */}
+                  <div className="px-2.5 py-1 bg-[#181818] border border-[#3a3a3a] flex items-center gap-1.5">
+                    <span className="text-neutral-400 font-mono text-[10px] font-bold uppercase tracking-wider">SUBTITLE</span>
                     <span className="font-mono font-bold text-white text-xs tracking-tight">
-                      {activeSubTrack ? `${activeSubTrack.label || activeSubTrack.lang || 'English'}` : 'OFF'}
+                      {activeSubTrack ? `1/${subtitleTracks.length || 1} ${activeSubTrack.label || activeSubTrack.lang}` : 'OFF'}
                     </span>
                   </div>
 
-                  {/* Stream Engine */}
-                  <div className="hidden lg:flex px-2.5 py-1 bg-[#1c1c1c] border border-[#3a3a3a] items-center gap-1.5">
-                    <span className="text-[#888888] font-mono text-[10px] font-bold uppercase">ENGINE</span>
+                  {/* HDMI Output Terminal Block */}
+                  <div className="hidden xl:flex px-2.5 py-1 bg-[#181818] border border-[#3a3a3a] items-center gap-2">
+                    <span className="text-neutral-400 font-mono text-[10px] font-bold uppercase tracking-wider">HDMI 1</span>
                     <span className="font-mono font-bold text-neutral-300 text-xs">
-                      {playbackMethod.toUpperCase()}
+                      4K 24p HDR10 BT.2020 12-bit
+                    </span>
+                    <span className="text-[10px] font-mono text-zinc-400 border-l border-zinc-700 pl-1.5 uppercase">
+                      {playbackMethod}
                     </span>
                   </div>
                 </div>
@@ -2157,6 +2463,20 @@ export function VideoPlayer({
                     }`}
                   >
                     AUDIO
+                  </button>
+
+                  {/* Night Mode (DRC) trigger */}
+                  <button
+                    onClick={toggleNightMode}
+                    className={`px-2.5 py-1 border font-mono text-xs font-bold cursor-pointer transition-colors flex items-center gap-1 ${
+                      isNightMode 
+                        ? 'bg-indigo-400 text-black border-indigo-300 shadow-[0_0_10px_rgba(99,102,241,0.5)]' 
+                        : 'bg-[#262626] hover:bg-[#333333] text-neutral-300 border-[#555555]'
+                    }`}
+                    title="Toggle Night Mode (Dynamic Range Compression) (Key: N)"
+                  >
+                    <Moon size={11} className={isNightMode ? "fill-black text-black" : ""} />
+                    <span>DRC</span>
                   </button>
 
                   {/* Subtitles menu trigger */}

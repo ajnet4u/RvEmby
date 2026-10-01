@@ -289,8 +289,10 @@ export function MovieGrid({
           {/* View Mode Toggle (Wall Grid vs Carousel) */}
           {onToggleViewMode && (
             <button
+              tabIndex={0}
+              data-tv-focus="true"
               onClick={onToggleViewMode}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border border-white/20 text-xs font-semibold transition-all backdrop-blur-md"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 hover:text-white border border-white/20 text-xs font-semibold transition-all backdrop-blur-md cinema-focus focus:outline-none"
               title={viewMode === 'carousel' ? "Switch to Poster Wall Grid" : "Switch to Carousel"}
             >
               {viewMode === 'carousel' ? (
@@ -403,8 +405,10 @@ export function MovieGrid({
           {/* Left Arrow Button */}
           {canScrollLeft && (
             <button
+              tabIndex={0}
+              data-tv-focus="true"
               onClick={() => scroll('left')}
-              className="absolute -left-5 top-1/2 -translate-y-1/2 z-30 w-12 h-12 rounded-full bg-black/80 hover:bg-white text-white hover:text-black border border-white/30 flex items-center justify-center shadow-[0_0_20px_rgba(0,0,0,0.8)] backdrop-blur-md transition-all duration-200"
+              className="absolute -left-5 top-1/2 -translate-y-1/2 z-30 w-12 h-12 rounded-full bg-black/80 hover:bg-white text-white hover:text-black border border-white/30 flex items-center justify-center shadow-[0_0_20px_rgba(0,0,0,0.8)] backdrop-blur-md transition-all duration-200 cinema-focus focus:outline-none"
               aria-label="Scroll Left"
             >
               <ChevronLeft size={28} />
@@ -414,8 +418,10 @@ export function MovieGrid({
           {/* Right Arrow Button */}
           {canScrollRight && (
             <button
+              tabIndex={0}
+              data-tv-focus="true"
               onClick={() => scroll('right')}
-              className="absolute -right-5 top-1/2 -translate-y-1/2 z-30 w-12 h-12 rounded-full bg-black/80 hover:bg-white text-white hover:text-black border border-white/30 flex items-center justify-center shadow-[0_0_20px_rgba(0,0,0,0.8)] backdrop-blur-md transition-all duration-200"
+              className="absolute -right-5 top-1/2 -translate-y-1/2 z-30 w-12 h-12 rounded-full bg-black/80 hover:bg-white text-white hover:text-black border border-white/30 flex items-center justify-center shadow-[0_0_20px_rgba(0,0,0,0.8)] backdrop-blur-md transition-all duration-200 cinema-focus focus:outline-none"
               aria-label="Scroll Right"
             >
               <ChevronRight size={28} />

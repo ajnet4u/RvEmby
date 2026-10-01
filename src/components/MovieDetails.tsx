@@ -70,6 +70,7 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
             {/* Top Bar */}
             <div className="mb-6 md:mb-10">
               <button 
+                tabIndex={0}
                 data-tv-focus="true"
                 onClick={onClose}
                 className="flex items-center gap-2 text-[#9E9E9E] hover:text-[#FFFFFF] transition-colors group focus:outline-none rounded-full px-2 py-1 cinema-focus"
@@ -158,6 +159,7 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                     <>
                       <button
                         autoFocus
+                        tabIndex={0}
                         data-tv-focus="true"
                         onClick={() => onPlay(movie.playbackPositionSeconds)}
                         className="flex items-center gap-3 px-7 py-3 rounded-xl bg-white/[0.16] hover:bg-white/[0.24] text-[#FFFFFF] font-semibold text-sm shadow-[0_0_24px_rgba(255,255,255,0.18)] border border-white/[0.2] transition-all cursor-pointer cinema-focus"
@@ -168,6 +170,7 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                       </button>
 
                       <button
+                        tabIndex={0}
                         data-tv-focus="true"
                         onClick={() => onPlay(0)}
                         className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-[#E0E0E0] hover:text-[#FFFFFF] font-medium text-sm border border-white/[0.08] transition-all cursor-pointer cinema-focus"
@@ -180,6 +183,7 @@ export function MovieDetails({ movie, onClose, onPlay }: MovieDetailsProps) {
                   ) : (
                     <button
                       autoFocus
+                      tabIndex={0}
                       data-tv-focus="true"
                       onClick={() => onPlay(0)}
                       className="flex items-center gap-3 px-8 py-3 rounded-xl bg-white/[0.16] hover:bg-white/[0.24] text-[#FFFFFF] font-semibold text-base shadow-[0_0_24px_rgba(255,255,255,0.18)] border border-white/[0.2] transition-all cursor-pointer cinema-focus"
